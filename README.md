@@ -66,21 +66,30 @@ npm install js-yaml xml2js sqlite3 lodash
 
 ```
 win-ui-automation-tool/
-├── main.js                 # Electron main process
-├── index.html             # Main UI
-├── preload.js            # Preload script
-├── automation/           # Core automation modules
-│   ├── UIAutomationClient.js
-│   ├── TestRecorder.js
-│   ├── TestRunner.js
-│   └── AssertionEngine.js
-├── managers/             # Feature managers
-│   ├── ScenarioManager.js
-│   └── LocatorManager.js
-├── database/             # Database module
-│   └── DatabaseManager.js
+├── src/                  # TypeScript source files
+│   ├── main.ts          # Electron main process
+│   ├── preload.ts       # Preload script
+│   ├── types/           # TypeScript type definitions
+│   │   └── index.ts
+│   ├── automation/      # Core automation modules
+│   │   ├── UIAutomationClient.ts
+│   │   ├── TestRecorder.ts
+│   │   ├── TestRunner.ts
+│   │   └── AssertionEngine.ts
+│   ├── managers/        # Feature managers
+│   │   ├── ScenarioManager.ts
+│   │   └── LocatorManager.ts
+│   ├── database/        # Database module
+│   │   └── DatabaseManager.ts
+│   └── utils/           # Utility functions
+├── dist/                # Compiled JavaScript files
+├── index.html           # Main UI
+├── styles.css           # UI styles
+├── renderer.js          # Frontend JavaScript
 ├── locators/            # XML locator files
+├── assets/              # Application assets
 ├── test-data.db         # SQLite database
+├── tsconfig.json        # TypeScript configuration
 └── package.json
 ```
 
@@ -92,15 +101,18 @@ Create `package.json`:
   "name": "win-ui-automation-tool",
   "version": "1.0.0",
   "description": "Windows UI Automation Test Tool",
-  "main": "main.js",
+  "main": "dist/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev",
-    "build": "electron-builder build",
-    "dist": "electron-builder",
+    "dev": "npm run build && electron . --dev",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "dist": "npm run build && electron-builder",
     "rebuild": "electron-rebuild",
     "test": "jest",
-    "lint": "eslint . --ext .js,.jsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "type-check": "tsc --noEmit"
   },
   "build": {
     "appId": "com.yourcompany.winuiautomation",
@@ -117,15 +129,21 @@ Create `package.json`:
       "allowToChangeInstallationDirectory": true
     }
   },
-  "keywords": ["automation", "testing", "windows", "ui-automation"],
+  "keywords": ["automation", "testing", "windows", "ui-automation", "typescript"],
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/jest": "^29.5.8",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1",
     "electron-rebuild": "^3.2.9",
     "eslint": "^8.54.0",
-    "jest": "^29.7.0"
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.0"
   },
   "dependencies": {
     "edge-js": "^19.3.0",

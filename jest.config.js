@@ -1,16 +1,18 @@
 module.exports = {
+  preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: [
-    '**/__tests__/**/*.js',
-    '**/?(*.)+(spec|test).js'
+    '**/__tests__/**/*.ts',
+    '**/?(*.)+(spec|test).ts'
   ],
   collectCoverageFrom: [
-    '**/*.js',
-    '!**/node_modules/**',
-    '!**/dist/**',
-    '!**/coverage/**',
-    '!jest.config.js',
-    '!main.js'
+    'src/**/*.ts',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.ts',
+    '!src/**/*.spec.ts',
+    '!node_modules/**',
+    '!dist/**',
+    '!coverage/**'
   ],
   coverageDirectory: 'coverage',
   coverageReporters: [
@@ -20,5 +22,9 @@ module.exports = {
   ],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testTimeout: 10000,
-  verbose: true
+  verbose: true,
+  transform: {
+    '^.+\\.ts$': 'ts-jest'
+  },
+  moduleFileExtensions: ['ts', 'js', 'json']
 }; 

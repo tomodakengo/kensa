@@ -1,4 +1,4 @@
-// Jest setup file
+// Jest setup file for TypeScript
 global.console = {
   ...console,
   // Suppress console.log during tests
@@ -29,4 +29,13 @@ jest.mock('sqlite3', () => ({
     all: jest.fn(),
     close: jest.fn()
   }))
+}));
+
+// Mock fs-extra for testing
+jest.mock('fs-extra', () => ({
+  ensureDir: jest.fn(),
+  writeFile: jest.fn(),
+  readFile: jest.fn(),
+  existsSync: jest.fn(),
+  copyFile: jest.fn()
 })); 

@@ -2,15 +2,18 @@
   "name": "windows-ui-automation-test-tool",
   "version": "1.0.0",
   "description": "Windowsデスクトップアプリケーションのノーコードテスト自動化ツール",
-  "main": "main.js",
+  "main": "dist/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev",
-    "build": "electron-builder",
+    "dev": "npm run build && electron . --dev",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "dist": "npm run build && electron-builder",
     "test": "jest",
     "test:watch": "jest --watch",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "type-check": "tsc --noEmit"
   },
   "keywords": [
     "windows",
@@ -18,19 +21,26 @@
     "testing",
     "ui-automation",
     "playwright",
-    "electron"
+    "electron",
+    "typescript"
   ],
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/jest": "^29.5.8",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.6.4",
-    "jest": "^29.7.0",
     "eslint": "^8.55.0",
     "eslint-config-standard": "^17.1.0",
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-node": "^11.1.0",
-    "eslint-plugin-promise": "^6.1.1"
+    "eslint-plugin-promise": "^6.1.1",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.0"
   },
   "dependencies": {
     "edge-js": "^16.0.0",
@@ -46,11 +56,13 @@
       "output": "dist"
     },
     "files": [
-      "**/*",
+      "dist/**/*",
+      "assets/**/*",
+      "locators/**/*",
       "!node_modules/**/*",
-      "!dist/**/*",
-      "!**/*.test.js",
-      "!**/*.spec.js"
+      "!src/**/*",
+      "!**/*.test.ts",
+      "!**/*.spec.ts"
     ],
     "win": {
       "target": "nsis",
