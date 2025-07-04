@@ -13,7 +13,8 @@
     "test:watch": "jest --watch",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "rebuild": "electron-rebuild"
   },
   "keywords": [
     "windows",
@@ -27,12 +28,15 @@
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^20.10.0",
     "@types/jest": "^29.5.8",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.10.0",
+    "@types/xml2js": "^0.4.14",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.6.4",
+    "electron-rebuild": "^3.2.9",
     "eslint": "^8.55.0",
     "eslint-config-standard": "^17.1.0",
     "eslint-plugin-import": "^2.29.0",
@@ -43,14 +47,13 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "edge-js": "^16.0.0",
-    "iohook": "^0.9.3",
-    "sqlite3": "^5.1.6",
     "fs-extra": "^11.1.1",
     "js-yaml": "^4.1.0",
-    "xml2js": "^0.6.2",
-    "robotjs": "^0.6.0",
-    "sharp": "^0.33.0"
+    "lodash": "^4.17.21",
+    "sharp": "^0.33.0",
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.1",
+    "xml2js": "^0.6.2"
   },
   "build": {
     "appId": "com.yourcompany.windows-ui-automation-test-tool",

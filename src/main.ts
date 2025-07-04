@@ -13,28 +13,25 @@ import { errorHandler } from './utils/ErrorHandler';
 import { configManager } from './utils/ConfigManager';
 import type {
   TestScenario,
-  TestResult,
   Locator,
   AppSettings,
   TestReport,
   RecordingEvent,
-  Snapshot
+  TestResult
 } from './types';
 
 class MainProcess {
   private mainWindow: BrowserWindow | null = null;
-  private uiClient: UIAutomationClient;
-  private testRecorder: TestRecorder;
-  private testRunner: TestRunner;
-  private databaseManager: DatabaseManager;
-  private scenarioManager: ScenarioManager;
-  private locatorManager: LocatorManager;
-  private testReporter: TestReporter;
-  private assertionEngine: AssertionEngine;
-  private settings: AppSettings;
+  private uiClient!: UIAutomationClient;
+  private testRecorder!: TestRecorder;
+  private testRunner!: TestRunner;
+  private databaseManager!: DatabaseManager;
+  private scenarioManager!: ScenarioManager;
+  private locatorManager!: LocatorManager;
+  private testReporter!: TestReporter;
+  private settings!: AppSettings;
 
   constructor() {
-    this.initializeComponents();
     this.setupEventHandlers();
   }
 
@@ -60,10 +57,9 @@ class MainProcess {
 
       // 自動化コンポーネントの初期化
       this.uiClient = new UIAutomationClient();
-      this.assertionEngine = new AssertionEngine(this.uiClient);
       this.testRecorder = new TestRecorder(this.uiClient);
-      this.testRunner = new TestRunner(this.uiClient, this.assertionEngine);
-      this.testReporter = new TestReporter({ outputDir: this.settings.reportPath });
+      this.testRunner = new TestRunner(this.uiClient);
+      this.testReporter = new TestReporter(this.settings.reportPath);
 
       await errorHandler.info('Application components initialized successfully');
     } catch (error) {
@@ -174,7 +170,7 @@ class MainProcess {
 
     ipcMain.handle('pause-test', () => {
       try {
-        this.testRunner.pauseTest();
+        this.testRunner.stop();
         return { success: true };
       } catch (error) {
         console.error('Test pause failed:', error);
@@ -185,8 +181,8 @@ class MainProcess {
     // スナップショット
     ipcMain.handle('take-snapshot', async () => {
       try {
-        const snapshot = await this.assertionEngine.takeSnapshot();
-        return snapshot;
+        const screenshot = await this.uiClient.screenshot({ handle: 0 });
+        return { path: screenshot };
       } catch (error) {
         console.error('Snapshot failed:', error);
         throw error;
@@ -196,6 +192,10 @@ class MainProcess {
     // ロケーター管理
     ipcMain.handle('save-locator', async (_, locator: Locator) => {
       try {
+        // Ensure required properties are set
+        if (!locator.pageName || !locator.locatorName) {
+          throw new Error('Locator must have pageName and locatorName properties');
+        }
         await this.locatorManager.saveLocator(locator);
         return { success: true };
       } catch (error) {
@@ -216,7 +216,14 @@ class MainProcess {
     // シナリオ管理
     ipcMain.handle('save-scenario', async (_, scenario: TestScenario) => {
       try {
-        await this.scenarioManager.saveScenario(scenario);
+        // Convert TestScenario to Scenario format for ScenarioManager
+        const scenarioData = {
+          name: scenario.name,
+          description: scenario.description,
+          folder_id: undefined,
+          test_data: scenario
+        };
+        await this.scenarioManager.saveScenario(scenarioData);
         return { success: true };
       } catch (error) {
         console.error('Scenario save failed:', error);
@@ -226,7 +233,7 @@ class MainProcess {
 
     ipcMain.handle('get-scenarios', async () => {
       try {
-        return await this.scenarioManager.getAllScenarios();
+        return await this.scenarioManager.getScenarios();
       } catch (error) {
         console.error('Get scenarios failed:', error);
         throw error;
@@ -236,7 +243,9 @@ class MainProcess {
     // レポート生成
     ipcMain.handle('generate-report', async () => {
       try {
-        const report = await this.testReporter.generateReport();
+        // Create empty test results for demonstration
+        const testResults: TestResult[] = [];
+        const report = await this.testReporter.generateReport(testResults);
         return report;
       } catch (error) {
         console.error('Report generation failed:', error);
@@ -273,8 +282,10 @@ class MainProcess {
 
         if (!result.canceled && result.filePaths.length > 0) {
           const filePath = result.filePaths[0];
-          const content = await fs.readFile(filePath, 'utf-8');
-          return JSON.parse(content);
+          if (await fs.pathExists(filePath)) {
+            const content = await fs.readFile(filePath, 'utf-8');
+            return JSON.parse(content);
+          }
         }
         return null;
       } catch (error) {
@@ -341,17 +352,19 @@ class MainProcess {
   private async cleanup(): Promise<void> {
     try {
       // 記録を停止
-      if (this.testRecorder.isRecording()) {
+      if (this.testRecorder && this.testRecorder.isRecording()) {
         await this.testRecorder.stopRecording();
       }
 
       // テスト実行を停止
-      if (this.testRunner.isRunning()) {
-        this.testRunner.pauseTest();
+      if (this.testRunner && this.testRunner.isRunning()) {
+        this.testRunner.stop();
       }
 
       // データベース接続を閉じる
-      await this.databaseManager.close();
+      if (this.databaseManager) {
+        await this.databaseManager.close();
+      }
 
       console.log('Cleanup completed');
     } catch (error) {

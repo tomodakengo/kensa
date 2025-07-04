@@ -1,22 +1,7 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import { UIAutomationClient } from './UIAutomationClient';
-import type { Assertion, Snapshot } from '../types';
-
-interface AssertionResult {
-  type: string;
-  passed: boolean;
-  actual?: any;
-  expected?: any;
-  message: string;
-  error?: string;
-  stack?: string;
-  timestamp: number;
-}
-
-interface AssertionHandler {
-  (element: any, expected?: any): Promise<AssertionResult>;
-}
+import type { Assertion, Snapshot, AssertionResult, AssertionHandler } from '../types';
 
 interface AttributeAssertion {
   name: string;
@@ -41,10 +26,12 @@ export class AssertionEngine {
       const isVisible = props && !props.isOffscreen && props.bounds.width > 0 && props.bounds.height > 0;
 
       return {
+        type: 'visible',
         passed: isVisible === expected,
         actual: isVisible,
         expected: expected,
-        message: `Element ${expected ? 'should be' : 'should not be'} visible`
+        message: `Element ${expected ? 'should be' : 'should not be'} visible`,
+        timestamp: Date.now()
       };
     });
 
@@ -54,22 +41,26 @@ export class AssertionEngine {
       const passed = actual === expected;
 
       return {
+        type: 'text',
         passed,
         actual,
         expected,
-        message: `Expected text to be "${expected}", but got "${actual}"`
+        message: `Expected text to be "${expected}", but got "${actual}"`,
+        timestamp: Date.now()
       };
     });
 
     this.register('contains-text', async (element: any, expected: string) => {
       const actual = await this.automationClient.getText(element);
-      const passed = actual && actual.includes(expected);
+      const passed = actual ? actual.includes(expected) : false;
 
       return {
+        type: 'contains-text',
         passed,
         actual,
         expected,
-        message: `Expected text to contain "${expected}", but got "${actual}"`
+        message: `Expected text to contain "${expected}", but got "${actual}"`,
+        timestamp: Date.now()
       };
     });
 
@@ -79,10 +70,12 @@ export class AssertionEngine {
       const isEnabled = props && props.isEnabled;
 
       return {
+        type: 'enabled',
         passed: isEnabled === expected,
         actual: isEnabled,
         expected,
-        message: `Element ${expected ? 'should be' : 'should not be'} enabled`
+        message: `Element ${expected ? 'should be' : 'should not be'} enabled`,
+        timestamp: Date.now()
       };
     });
 
@@ -90,18 +83,22 @@ export class AssertionEngine {
       const props = await this.automationClient.getElementProperties(element);
       if (!props.controlType.includes('CheckBox') && !props.controlType.includes('RadioButton')) {
         return {
+          type: 'checked',
           passed: false,
-          message: 'Element is not a checkbox or radio button'
+          message: 'Element is not a checkbox or radio button',
+          timestamp: Date.now()
         };
       }
 
       const isChecked = await this.automationClient.isChecked(element);
 
       return {
+        type: 'checked',
         passed: isChecked === expected,
         actual: isChecked,
         expected,
-        message: `Element ${expected ? 'should be' : 'should not be'} checked`
+        message: `Element ${expected ? 'should be' : 'should not be'} checked`,
+        timestamp: Date.now()
       };
     });
 
@@ -111,10 +108,12 @@ export class AssertionEngine {
       const passed = actual === expected;
 
       return {
+        type: 'value',
         passed,
         actual,
         expected,
-        message: `Expected value to be "${expected}", but got "${actual}"`
+        message: `Expected value to be "${expected}", but got "${actual}"`,
+        timestamp: Date.now()
       };
     });
 
@@ -125,10 +124,12 @@ export class AssertionEngine {
       const passed = actual === params.value;
 
       return {
+        type: 'attribute',
         passed,
         actual,
         expected: params.value,
-        message: `Expected ${params.name} to be "${params.value}", but got "${actual}"`
+        message: `Expected ${params.name} to be "${params.value}", but got "${actual}"`,
+        timestamp: Date.now()
       };
     });
 
@@ -139,10 +140,12 @@ export class AssertionEngine {
       const passed = actual === expected;
 
       return {
+        type: 'count',
         passed,
         actual,
         expected,
-        message: `Expected ${expected} elements, but found ${actual}`
+        message: `Expected ${expected} elements, but found ${actual}`,
+        timestamp: Date.now()
       };
     });
 
@@ -151,10 +154,12 @@ export class AssertionEngine {
       const hasFocus = await this.automationClient.hasFocus(element);
 
       return {
+        type: 'focused',
         passed: hasFocus === expected,
         actual: hasFocus,
         expected,
-        message: `Element ${expected ? 'should have' : 'should not have'} focus`
+        message: `Element ${expected ? 'should have' : 'should not have'} focus`,
+        timestamp: Date.now()
       };
     });
 
@@ -166,18 +171,22 @@ export class AssertionEngine {
       if (!snapshot) {
         await this.saveSnapshot(snapshotName, screenshot);
         return {
+          type: 'matches-snapshot',
           passed: true,
-          message: 'Snapshot created'
+          message: 'Snapshot created',
+          timestamp: Date.now()
         };
       }
 
       const passed = await this.compareImages(screenshot, snapshot);
 
       return {
+        type: 'matches-snapshot',
         passed,
         actual: screenshot,
         expected: snapshot,
-        message: passed ? 'Screenshot matches snapshot' : 'Screenshot does not match snapshot'
+        message: passed ? 'Screenshot matches snapshot' : 'Screenshot does not match snapshot',
+        timestamp: Date.now()
       };
     });
   }
@@ -187,7 +196,7 @@ export class AssertionEngine {
   }
 
   async runAssertion(assertion: Assertion, element: any): Promise<AssertionResult> {
-    const { type, ...params } = assertion;
+    const { type, expected } = assertion;
 
     if (!this.assertions.has(type)) {
       return {
@@ -200,10 +209,9 @@ export class AssertionEngine {
 
     try {
       const handler = this.assertions.get(type)!;
-      const result = await handler(element, params.expected || params);
-
+      const result = await handler(element, expected);
+      
       return {
-        type,
         ...result,
         timestamp: Date.now()
       };
@@ -212,7 +220,8 @@ export class AssertionEngine {
         type,
         passed: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
+        stack: error instanceof Error ? (error.stack || 'No stack trace available') : 'No stack trace available',
+        message: `Assertion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         timestamp: Date.now()
       };
     }
@@ -220,63 +229,54 @@ export class AssertionEngine {
 
   async runMultipleAssertions(assertions: Assertion[], element: any): Promise<AssertionResult[]> {
     const results: AssertionResult[] = [];
-
+    
     for (const assertion of assertions) {
       const result = await this.runAssertion(assertion, element);
       results.push(result);
-
-      if (!result.passed && (assertion as any).stopOnFailure) {
-        break;
+      
+      if (!result.passed) {
+        break; // Stop on first failure
       }
     }
-
+    
     return results;
   }
 
   async takeSnapshot(element?: any): Promise<Snapshot> {
-    try {
-      await fs.ensureDir(this.snapshotsDir);
+    const timestamp = new Date().toISOString();
+    const name = `snapshot_${Date.now()}`;
+    const filename = `${name}.png`;
+    const filepath = path.join(this.snapshotsDir, filename);
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const name = `snapshot_${timestamp}`;
-      const filename = `${name}.png`;
-      const filepath = path.join(this.snapshotsDir, filename);
+    await fs.ensureDir(this.snapshotsDir);
 
-      let screenshot: string;
-      if (element) {
-        screenshot = await this.automationClient.screenshot(element);
-      } else {
-        // Take full screen screenshot
-        screenshot = await this.automationClient.screenshot({ handle: 0 });
-      }
-
-      // Copy screenshot to snapshots directory
-      await fs.copyFile(screenshot, filepath);
-
-      const snapshot: Snapshot = {
-        id: Date.now(),
-        name,
-        path: filepath,
-        timestamp: new Date().toISOString(),
-        description: `Auto-generated snapshot for ${element ? 'element' : 'screen'}`
-      };
-
-      return snapshot;
-    } catch (error) {
-      throw new Error(`Failed to take snapshot: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    let screenshotPath = '';
+    if (element) {
+      screenshotPath = await this.automationClient.screenshot(element);
+    } else {
+      // Take full screen screenshot
+      screenshotPath = await this.automationClient.screenshot({ handle: 0 });
     }
+
+    if (screenshotPath && screenshotPath !== filepath) {
+      await fs.copy(screenshotPath, filepath);
+    }
+
+    return {
+      id: Date.now(),
+      name,
+      path: filepath,
+      timestamp,
+      description: `Snapshot taken at ${timestamp}`
+    };
   }
 
   async loadSnapshot(name: string): Promise<string | null> {
+    const filepath = path.join(this.snapshotsDir, `${name}.png`);
+    
     try {
-      const filepath = path.join(this.snapshotsDir, `${name}.png`);
       const exists = await fs.pathExists(filepath);
-
-      if (exists) {
-        return filepath;
-      }
-
-      return null;
+      return exists ? filepath : null;
     } catch (error) {
       console.error('Error loading snapshot:', error);
       return null;
@@ -284,113 +284,81 @@ export class AssertionEngine {
   }
 
   async saveSnapshot(name: string, data: string): Promise<void> {
-    try {
-      await fs.ensureDir(this.snapshotsDir);
-      const filepath = path.join(this.snapshotsDir, `${name}.png`);
-      await fs.copyFile(data, filepath);
-    } catch (error) {
-      throw new Error(`Failed to save snapshot: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    const filepath = path.join(this.snapshotsDir, `${name}.png`);
+    await fs.ensureDir(this.snapshotsDir);
+    await fs.copy(data, filepath);
   }
 
   async compareImages(image1: string, image2: string): Promise<boolean> {
     try {
-      // 基本的なファイル比較
       const buffer1 = await fs.readFile(image1);
       const buffer2 = await fs.readFile(image2);
 
-      // 完全一致の場合はtrue
-      if (buffer1.equals(buffer2)) {
-        return true;
-      }
-
-      // 画像処理ライブラリを使用した詳細比較（オプション）
-      try {
-        const sharp = require('sharp');
-
-        const img1 = sharp(image1);
-        const img2 = sharp(image2);
-
-        const metadata1 = await img1.metadata();
-        const metadata2 = await img2.metadata();
-
-        // サイズが異なる場合はfalse
-        if (metadata1.width !== metadata2.width || metadata1.height !== metadata2.height) {
-          return false;
-        }
-
-        // ピクセル比較（簡易版）
-        const diff = await sharp(image1)
-          .composite([{
-            input: image2,
-            blend: 'difference'
-          }])
-          .raw()
-          .toBuffer();
-
-        // 差分が閾値以下かチェック
-        const threshold = 0.1; // 10%の差分を許容
-        const totalPixels = metadata1.width * metadata1.height * 3; // RGB
-        const diffPixels = diff.reduce((sum, val) => sum + (val > 0 ? 1 : 0), 0);
-
-        return (diffPixels / totalPixels) < threshold;
-
-      } catch (sharpError) {
-        // sharpが利用できない場合は基本的な比較のみ
-        console.warn('Sharp library not available, using basic comparison');
+      if (buffer1.length !== buffer2.length) {
         return false;
       }
 
+      // Simple byte-by-byte comparison
+      const diff = buffer1.compare(buffer2);
+      let diffPixels = 0;
+      if (typeof diff === 'number') {
+        diffPixels = diff === 0 ? 0 : 1;
+      }
+      
+      // Allow for small differences (less than 1% of total pixels)
+      const tolerance = buffer1.length * 0.01;
+      return diffPixels <= tolerance;
     } catch (error) {
       console.error('Error comparing images:', error);
       return false;
     }
   }
 
+  // Fluent API for assertions
   expect(element: any) {
     return {
-      async toBeVisible(): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'visible', expected: true }, element);
+      toBeVisible: async (): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'visible', expected: true, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toBeHidden(): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'visible', expected: false }, element);
+      toBeHidden: async (): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'visible', expected: false, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toHaveText(text: string): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'text', expected: text }, element);
+      toHaveText: async (text: string): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'text', expected: text, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toContainText(text: string): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'contains-text', expected: text }, element);
+      toContainText: async (text: string): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'contains-text', expected: text, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toBeEnabled(): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'enabled', expected: true }, element);
+      toBeEnabled: async (): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'enabled', expected: true, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toBeDisabled(): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'enabled', expected: false }, element);
+      toBeDisabled: async (): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'enabled', expected: false, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toBeChecked(): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'checked', expected: true }, element);
+      toBeChecked: async (): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'checked', expected: true, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toHaveValue(value: string): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'value', expected: value }, element);
+      toHaveValue: async (value: string): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'value', expected: value, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toHaveAttribute(name: string, value: string): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'attribute', name, value }, element);
+      toHaveAttribute: async (name: string, value: string): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'attribute', expected: { name, value }, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toBeFocused(): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'focused', expected: true }, element);
+      toBeFocused: async (): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'focused', expected: true, locator: '', timestamp: new Date().toISOString() }, element);
       },
 
-      async toMatchSnapshot(name: string): Promise<AssertionResult> {
-        return await this.runAssertion({ type: 'matches-snapshot', expected: name }, element);
+      toMatchSnapshot: async (name: string): Promise<AssertionResult> => {
+        return await this.runAssertion({ id: 0, type: 'matches-snapshot', expected: name, locator: '', timestamp: new Date().toISOString() }, element);
       }
     };
   }

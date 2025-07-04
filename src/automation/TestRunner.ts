@@ -1,42 +1,23 @@
 import * as yaml from 'js-yaml';
+import * as fs from 'fs-extra';
+import * as path from 'path';
 import { UIAutomationClient } from './UIAutomationClient';
 import { AssertionEngine } from './AssertionEngine';
 import { TestReporter } from './TestReporter';
-import type { TestScenario, TestResult, TestStep, Assertion } from '../types';
+import type { TestScenario, TestResult, TestStep, Assertion, TestExecutionResult, StepResult, ElementCriteria } from '../types';
 
-interface StepResult {
-  step: number;
-  action: string;
-  status: 'running' | 'passed' | 'failed';
-  startTime: number;
-  endTime?: number;
-  duration?: number;
-  description?: string;
-  error?: string;
-  stack?: string;
-  screenshot?: string;
-  failureScreenshot?: string;
-}
-
-interface TestExecutionResult {
-  testName: string;
-  status: 'running' | 'passed' | 'failed' | 'error';
-  startTime: number;
-  endTime?: number;
-  duration?: number;
-  steps: StepResult[];
-  error?: string;
-  stack?: string;
-}
-
-interface ElementSelector {
-  type: 'automationId' | 'name' | 'className' | 'controlType' | 'xpath';
+interface LocatorCriteria {
+  strategy: 'id' | 'name' | 'className' | 'xpath';
   value: string;
-  priority: number;
 }
 
-interface SelectorCriteria {
-  selectors: ElementSelector[];
+interface TestConfig {
+  defaultTimeout: number;
+  retryAttempts: number;
+  screenshotOnFailure: boolean;
+  videoRecording: boolean;
+  maxParallelTests: number;
+  headless: boolean;
 }
 
 export class TestRunner {
@@ -45,182 +26,159 @@ export class TestRunner {
   private reporter: TestReporter;
   private currentTest: TestScenario | null = null;
   private executionLog: StepResult[] = [];
-  private isRunning: boolean = false;
+  private isRunningState: boolean = false;
+  private config: TestConfig;
 
-  constructor(automationClient: UIAutomationClient, assertionEngine: AssertionEngine) {
+  constructor(automationClient: UIAutomationClient, config: Partial<TestConfig> = {}) {
     this.automationClient = automationClient;
-    this.assertionEngine = assertionEngine;
+    this.assertionEngine = new AssertionEngine(automationClient);
     this.reporter = new TestReporter();
+    this.config = {
+      defaultTimeout: 30000,
+      retryAttempts: 3,
+      screenshotOnFailure: true,
+      videoRecording: false,
+      maxParallelTests: 1,
+      headless: false,
+      ...config
+    };
   }
 
   async runTest(testData: TestScenario | string): Promise<{ results: TestExecutionResult; report?: any }> {
+    const startTime = Date.now();
+    this.isRunningState = true;
+
     try {
-      this.isRunning = true;
+      let scenario: TestScenario;
 
-      // Parse test data if it's YAML string
-      const test = typeof testData === 'string' ? yaml.load(testData) as TestScenario : testData;
+      if (typeof testData === 'string') {
+        // ファイルパスからテストシナリオを読み込み
+        scenario = await this.loadTestScenario(testData);
+      } else {
+        scenario = testData;
+      }
 
-      this.currentTest = test;
-      this.executionLog = [];
-
-      const startTime = Date.now();
       const results: TestExecutionResult = {
-        testName: test.name,
-        status: 'running',
-        startTime: startTime,
+        testName: scenario.name,
+        status: 'passed',
+        startTime,
+        endTime: 0,
+        duration: 0,
         steps: []
       };
 
-      // Execute each step
-      for (const step of test.steps) {
-        const stepResult = await this.executeStep(step);
-        results.steps.push(stepResult);
-
-        if (stepResult.status === 'failed') {
-          results.status = 'failed';
-          break;
-        }
-      }
-
-      if (results.status === 'running') {
+      try {
+        await this.executeScenario(scenario, results);
         results.status = 'passed';
+      } catch (error) {
+        results.status = 'failed';
+        results.error = error instanceof Error ? error.message : 'Unknown error';
+        results.stack = error instanceof Error ? (error.stack || 'No stack trace available') : 'No stack trace available';
       }
 
       results.endTime = Date.now();
-      results.duration = results.endTime - startTime;
+      results.duration = results.endTime - results.startTime;
 
-      // Generate report
-      const report = await this.reporter.generateReport(results);
+      // Generate report - Convert TestExecutionResult to TestResult[]
+      const testResults: TestResult[] = [{
+        id: Date.now(),
+        scenarioId: scenario.id,
+        status: results.status === 'passed' ? 'passed' : 'failed',
+        message: results.error || 'Test completed',
+        timestamp: new Date().toISOString(),
+        duration: results.duration,
+        error: results.error,
+        stack: results.stack
+      }];
 
-      return {
-        results,
-        report
-      };
+      const report = await this.reporter.generateReport(testResults);
+
+      this.isRunningState = false;
+      return { results, report };
     } catch (error) {
-      return {
-        results: {
-          testName: typeof testData === 'string' ? 'Unknown' : testData.name,
-          status: 'error',
-          startTime: Date.now(),
-          endTime: Date.now(),
-          duration: 0,
-          steps: [],
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined
-        }
+      this.isRunningState = false;
+      const results: TestExecutionResult = {
+        testName: typeof testData === 'string' ? testData : testData.name,
+        status: 'error',
+        startTime,
+        endTime: Date.now(),
+        duration: Date.now() - startTime,
+        steps: [],
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? (error.stack || 'No stack trace available') : 'No stack trace available'
       };
-    } finally {
-      this.isRunning = false;
+
+      return { results };
     }
   }
 
-  async executeStep(step: TestStep): Promise<StepResult> {
-    const stepResult: StepResult = {
+  private async executeScenario(scenario: TestScenario, results: TestExecutionResult): Promise<void> {
+    for (const step of scenario.steps) {
+      const stepResult = await this.executeStep(step);
+      results.steps.push(stepResult);
+
+      if (stepResult.status === 'failed') {
+        throw new Error(`Step ${step.id} failed: ${stepResult.error}`);
+      }
+    }
+  }
+
+  private async executeStep(step: TestStep): Promise<StepResult> {
+    const stepStartTime = Date.now();
+    let stepResult: StepResult = {
       step: step.id,
       action: step.action,
       status: 'running',
-      startTime: Date.now()
+      startTime: stepStartTime,
+      description: step.description || ''
     };
 
     try {
-      // Find element if needed
       let element: any = null;
+
+      // Locate element if locator is provided
       if (step.locator) {
-        element = await this.findElementBySelector(step.locator);
+        element = await this.locateElement(step.locator);
         if (!element) {
           throw new Error(`Element not found: ${step.locator}`);
         }
       }
 
-      // Execute action
+      // Execute action based on type
       switch (step.action) {
         case 'click':
+          if (!element) throw new Error('Click action requires an element');
           await this.automationClient.click(element);
-          stepResult.description = `Clicked on element`;
           break;
 
         case 'type':
         case 'fill':
-          if (step.value) {
-            await this.automationClient.fill(element, step.value);
-            stepResult.description = `Typed "${step.value}" into element`;
-          }
-          break;
-
-        case 'clear':
-          await this.automationClient.clear(element);
-          stepResult.description = `Cleared element`;
+          if (!element) throw new Error('Type action requires an element');
+          if (!step.value) throw new Error('Type action requires a value');
+          await this.automationClient.type(element, step.value);
           break;
 
         case 'hover':
+          if (!element) throw new Error('Hover action requires an element');
           await this.automationClient.hover(element);
-          stepResult.description = `Hovered over element`;
           break;
 
-        case 'doubleClick':
-          await this.automationClient.doubleClick(element);
-          stepResult.description = `Double-clicked element`;
-          break;
-
-        case 'rightClick':
-          await this.automationClient.rightClick(element);
-          stepResult.description = `Right-clicked element`;
-          break;
-
-        case 'selectOption':
-          if (step.value) {
-            await this.automationClient.selectOption(element, step.value);
-            stepResult.description = `Selected option "${step.value}"`;
-          }
-          break;
-
-        case 'check':
-          await this.automationClient.check(element);
-          stepResult.description = `Checked checkbox`;
-          break;
-
-        case 'uncheck':
-          await this.automationClient.uncheck(element);
-          stepResult.description = `Unchecked checkbox`;
-          break;
-
-        case 'keypress':
-          if (step.value) {
-            await this.simulateKeyPress(step.value);
-            stepResult.description = `Pressed key "${step.value}"`;
-          }
+        case 'scroll':
+          await this.automationClient.scroll(step.value ? parseInt(step.value) : 100);
           break;
 
         case 'wait':
-          const duration = step.value ? parseInt(step.value) : 1000;
-          await this.wait(duration);
-          stepResult.description = `Waited ${duration}ms`;
-          break;
-
-        case 'waitForSelector':
-          const timeout = step.value ? parseInt(step.value) : 30000;
-          element = await this.automationClient.waitForSelector(
-            step.locator || '',
-            { timeout }
-          );
-          stepResult.description = `Waited for element to appear`;
-          break;
-
-        case 'screenshot':
-          const screenshot = await this.automationClient.screenshot(element || { handle: 0 });
-          stepResult.screenshot = screenshot;
-          stepResult.description = `Took screenshot`;
+          const timeout = step.value ? parseInt(step.value) : this.config.defaultTimeout;
+          await this.sleep(timeout);
           break;
 
         case 'assert':
-          if (step.value) {
-            const assertion: Assertion = JSON.parse(step.value);
-            const assertionResult = await this.assertionEngine.runAssertion(assertion, element);
-            if (!assertionResult.passed) {
-              throw new Error(`Assertion failed: ${assertionResult.message}`);
-            }
-            stepResult.description = `Assertion passed: ${assertion.type}`;
-          }
+          if (!element) throw new Error('Assert action requires an element');
+          await this.executeAssertion(step, element);
+          break;
+
+        case 'screenshot':
+          await this.executeScreenshot(step);
           break;
 
         default:
@@ -228,167 +186,181 @@ export class TestRunner {
       }
 
       stepResult.status = 'passed';
+      stepResult.endTime = Date.now();
+      stepResult.duration = stepResult.endTime - stepResult.startTime;
 
     } catch (error) {
       stepResult.status = 'failed';
+      stepResult.endTime = Date.now();
+      stepResult.duration = (stepResult.endTime || stepResult.startTime) - stepResult.startTime;
       stepResult.error = error instanceof Error ? error.message : 'Unknown error';
-      stepResult.stack = error instanceof Error ? error.stack : undefined;
+      stepResult.stack = error instanceof Error ? (error.stack || 'No stack trace available') : 'No stack trace available';
 
-      // Take screenshot on failure
-      try {
-        const screenshot = await this.automationClient.screenshot({ handle: 0 });
-        stepResult.failureScreenshot = screenshot;
-      } catch (e) {
-        // Ignore screenshot errors
+      // 失敗時にスクリーンショットを撮影
+      if (this.config.screenshotOnFailure) {
+        try {
+          stepResult.screenshot = await this.takeScreenshot();
+        } catch (screenshotError) {
+          console.error('Failed to take screenshot:', screenshotError);
+        }
       }
     }
-
-    stepResult.endTime = Date.now();
-    stepResult.duration = stepResult.endTime - stepResult.startTime;
 
     this.executionLog.push(stepResult);
     return stepResult;
   }
 
-  async findElementBySelector(selector: string): Promise<any> {
-    // Parse selector string
-    const selectors = this.parseSelector(selector);
+  private async executeAssertion(step: TestStep, element: any): Promise<void> {
+    // Parse assertion from step description or value
+    // This is a simplified implementation
+    const assertion: Assertion = {
+      id: Date.now(),
+      type: 'visible',
+      locator: step.locator || '',
+      expected: step.value || true,
+      timestamp: new Date().toISOString()
+    };
 
-    // Try selectors in priority order
-    for (const sel of selectors) {
-      const criteria: any = {};
-
-      switch (sel.type) {
-        case 'automationId':
-          criteria.automationId = sel.value;
-          break;
-        case 'name':
-          criteria.name = sel.value;
-          break;
-        case 'className':
-          criteria.className = sel.value;
-          break;
-        case 'controlType':
-          criteria.controlType = sel.value;
-          break;
-        case 'xpath':
-          // XPath handling would need special implementation
-          continue;
-      }
-
-      const element = await this.automationClient.findElement(criteria);
-      if (element) {
-        return element;
-      }
+    const result = await this.assertionEngine.runAssertion(assertion, element);
+    
+    if (!result.passed) {
+      throw new Error(result.message);
     }
-
-    return null;
   }
 
-  private parseSelector(selector: string): ElementSelector[] {
-    const selectors: ElementSelector[] = [];
-
-    // Simple selector parsing - can be enhanced
-    if (selector.includes('automationId=')) {
-      const match = selector.match(/automationId="([^"]+)"/);
-      if (match) {
-        selectors.push({
-          type: 'automationId',
-          value: match[1],
-          priority: 1
-        });
-      }
-    }
-
-    if (selector.includes('name=')) {
-      const match = selector.match(/name="([^"]+)"/);
-      if (match) {
-        selectors.push({
-          type: 'name',
-          value: match[1],
-          priority: 2
-        });
-      }
-    }
-
-    if (selector.includes('className=')) {
-      const match = selector.match(/className="([^"]+)"/);
-      if (match) {
-        selectors.push({
-          type: 'className',
-          value: match[1],
-          priority: 3
-        });
-      }
-    }
-
-    if (selector.includes('controlType=')) {
-      const match = selector.match(/controlType="([^"]+)"/);
-      if (match) {
-        selectors.push({
-          type: 'controlType',
-          value: match[1],
-          priority: 4
-        });
-      }
-    }
-
-    return selectors.sort((a, b) => a.priority - b.priority);
+  private async executeScreenshot(step: TestStep): Promise<void> {
+    const element = step.locator ? await this.locateElement(step.locator) : null;
+    await this.takeScreenshot(element);
   }
 
-  async simulateKeyPress(key: string): Promise<void> {
-    try {
-      // robotjsを使用したキー入力シミュレーション
-      const robot = require('robotjs');
+  private async locateElement(locator: string): Promise<any> {
+    const criteria = this.parseLocator(locator);
+    
+    // Create ElementCriteria with valid properties only
+    const elementCriteria: Partial<ElementCriteria> = {};
+    
+    if (criteria.strategy === 'id') {
+      elementCriteria.automationId = criteria.value;
+    } else if (criteria.strategy === 'name') {
+      elementCriteria.name = criteria.value;
+    } else if (criteria.strategy === 'className') {
+      elementCriteria.className = criteria.value;
+    } else {
+      throw new Error(`Unsupported locator strategy: ${criteria.strategy}`);
+    }
 
-      // 特殊キーの処理
-      const specialKeys: { [key: string]: string } = {
-        'Enter': 'enter',
-        'Tab': 'tab',
-        'Escape': 'escape',
-        'Backspace': 'backspace',
-        'Delete': 'delete',
-        'Home': 'home',
-        'End': 'end',
-        'PageUp': 'pageup',
-        'PageDown': 'pagedown',
-        'ArrowUp': 'up',
-        'ArrowDown': 'down',
-        'ArrowLeft': 'left',
-        'ArrowRight': 'right',
-        'F1': 'f1',
-        'F2': 'f2',
-        'F3': 'f3',
-        'F4': 'f4',
-        'F5': 'f5',
-        'F6': 'f6',
-        'F7': 'f7',
-        'F8': 'f8',
-        'F9': 'f9',
-        'F10': 'f10',
-        'F11': 'f11',
-        'F12': 'f12'
+    // Ensure at least one property is set before casting
+    if (!elementCriteria.automationId && !elementCriteria.name && !elementCriteria.className) {
+      throw new Error(`No valid criteria found for locator: ${locator}`);
+    }
+
+    return await this.automationClient.findElement(elementCriteria as ElementCriteria);
+  }
+
+  private parseLocator(locator: string): LocatorCriteria {
+    // Parse different locator formats
+    // id=value, name=value, className=value, xpath=value
+    
+    const idMatch = locator.match(/^id=(.+)$/);
+    if (idMatch && idMatch[1]) {
+      return {
+        strategy: 'id',
+        value: idMatch[1]
       };
+    }
 
-      const robotKey = specialKeys[key] || key.toLowerCase();
-      robot.keyTap(robotKey);
+    const nameMatch = locator.match(/^name=(.+)$/);
+    if (nameMatch && nameMatch[1]) {
+      return {
+        strategy: 'name',
+        value: nameMatch[1]
+      };
+    }
 
-    } catch (error) {
-      console.error(`Failed to simulate key press: ${key}`, error);
-      throw new Error(`Key simulation failed: ${key}`);
+    const classNameMatch = locator.match(/^className=(.+)$/);
+    if (classNameMatch && classNameMatch[1]) {
+      return {
+        strategy: 'className',
+        value: classNameMatch[1]
+      };
+    }
+
+    const xpathMatch = locator.match(/^xpath=(.+)$/);
+    if (xpathMatch && xpathMatch[1]) {
+      return {
+        strategy: 'xpath',
+        value: xpathMatch[1]
+      };
+    }
+
+    // Default to name if no prefix is found
+    return {
+      strategy: 'name',
+      value: locator
+    };
+  }
+
+  private async takeScreenshot(element?: any): Promise<string> {
+    if (element) {
+      return await this.automationClient.screenshot(element);
+    } else {
+      // 全画面スクリーンショット
+      return await this.automationClient.screenshot({ handle: 0 });
     }
   }
 
-  async wait(duration: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, duration));
+  private async loadTestScenario(filePath: string): Promise<TestScenario> {
+    try {
+      const content = await fs.readFile(filePath, 'utf8');
+      const extension = path.extname(filePath).toLowerCase();
+
+      if (extension === '.json') {
+        return JSON.parse(content);
+      } else if (extension === '.yaml' || extension === '.yml') {
+        return yaml.load(content) as TestScenario;
+      } else {
+        throw new Error(`Unsupported file format: ${extension}`);
+      }
+    } catch (error) {
+      throw new Error(`Failed to load test scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
-  pauseTest(): void {
-    this.isRunning = false;
+  async runTestsInParallel(scenarios: TestScenario[]): Promise<TestExecutionResult[]> {
+    const results: TestExecutionResult[] = [];
+    const chunks = this.chunkArray(scenarios, this.config.maxParallelTests);
+
+    for (const chunk of chunks) {
+      const chunkPromises = chunk.map(scenario => this.runTest(scenario));
+      const chunkResults = await Promise.all(chunkPromises);
+      results.push(...chunkResults.map(r => r.results));
+    }
+
+    return results;
+  }
+
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
   }
 
   isRunning(): boolean {
-    return this.isRunning;
+    return this.isRunningState;
+  }
+
+  stop(): void {
+    this.isRunningState = false;
+  }
+
+  updateConfig(config: Partial<TestConfig>): void {
+    this.config = { ...this.config, ...config };
+  }
+
+  getConfig(): TestConfig {
+    return { ...this.config };
   }
 
   getCurrentTest(): TestScenario | null {
@@ -401,5 +373,9 @@ export class TestRunner {
 
   clearExecutionLog(): void {
     this.executionLog = [];
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 } 

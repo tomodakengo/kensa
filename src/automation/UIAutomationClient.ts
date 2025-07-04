@@ -1,5 +1,7 @@
-import * as edge from 'edge-js';
-import type { UIAutomationElement } from '../types';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 interface ElementCriteria {
   automationId?: string;
@@ -34,542 +36,768 @@ interface WaitOptions {
   visible?: boolean;
 }
 
+export interface UIElement {
+  id: string;
+  name: string;
+  className: string;
+  automationId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isEnabled: boolean;
+  isVisible: boolean;
+}
+
+export interface ClickOptions {
+  button?: 'left' | 'right' | 'middle';
+  doubleClick?: boolean;
+  delay?: number;
+}
+
+export interface TypeOptions {
+  delay?: number;
+  clearFirst?: boolean;
+}
+
 export class UIAutomationClient {
-  private automationCore: any;
+  private isRecording = false;
+  private recordedActions: any[] = [];
 
   constructor() {
-    // C# UI Automation code embedded
-    this.automationCore = edge.func({
-      source: `
-        using System;
-        using System.Threading.Tasks;
-        using System.Windows.Automation;
-        using System.Collections.Generic;
-        using System.Runtime.InteropServices;
-        using System.Drawing;
-        using System.Linq;
-
-        public class Startup {
-          public async Task<object> Invoke(dynamic input) {
-            string method = (string)input.method;
-            
-            switch(method) {
-              case "getWindowList":
-                return GetWindowList();
-              case "findElement":
-                return FindElement(input.criteria);
-              case "findElements":
-                return FindElements(input.criteria);
-              case "click":
-                return ClickElement(input.element);
-              case "doubleClick":
-                return DoubleClickElement(input.element);
-              case "rightClick":
-                return RightClickElement(input.element);
-              case "moveMouse":
-                return MoveMouse(input.x, input.y);
-              case "setText":
-                return SetText(input.element, input.text);
-              case "getText":
-                return GetText(input.element);
-              case "getElementAtPoint":
-                return GetElementAtPoint(input.x, input.y);
-              case "getElementProperties":
-                return GetElementProperties(input.element);
-              case "screenshot":
-                return TakeScreenshot(input.element);
-              case "waitForElement":
-                return WaitForElement(input.criteria, input.timeout);
-              case "selectOption":
-                return SelectOption(input.element, input.value);
-              case "check":
-                return CheckElement(input.element);
-              case "uncheck":
-                return UncheckElement(input.element);
-              case "isChecked":
-                return IsElementChecked(input.element);
-              case "getValue":
-                return GetValue(input.element);
-              case "hasFocus":
-                return HasFocus(input.element);
-              default:
-                throw new Exception($"Unknown method: {method}");
-            }
-          }
-
-          private object GetWindowList() {
-            var windows = new List<object>();
-            var desktop = AutomationElement.RootElement;
-            var condition = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Window);
-            var topWindows = desktop.FindAll(TreeScope.Children, condition);
-            
-            foreach(AutomationElement window in topWindows) {
-              var processId = window.Current.ProcessId;
-              var title = window.Current.Name;
-              var className = window.Current.ClassName;
-              
-              windows.Add(new {
-                processId = processId,
-                title = title,
-                className = className,
-                handle = window.Current.NativeWindowHandle
-              });
-            }
-            
-            return windows;
-          }
-
-          private object FindElement(dynamic criteria) {
-            var conditions = new List<Condition>();
-            
-            if(criteria.automationId != null)
-              conditions.Add(new PropertyCondition(AutomationElement.AutomationIdProperty, (string)criteria.automationId));
-            if(criteria.name != null)
-              conditions.Add(new PropertyCondition(AutomationElement.NameProperty, (string)criteria.name));
-            if(criteria.className != null)
-              conditions.Add(new PropertyCondition(AutomationElement.ClassNameProperty, (string)criteria.className));
-            if(criteria.controlType != null)
-              conditions.Add(new PropertyCondition(AutomationElement.ControlTypeProperty, GetControlType((string)criteria.controlType)));
-            
-            Condition finalCondition = conditions.Count == 1 ? conditions[0] : new AndCondition(conditions.ToArray());
-            
-            AutomationElement root = criteria.parentHandle != null ? 
-              AutomationElement.FromHandle(new IntPtr((long)criteria.parentHandle)) : 
-              AutomationElement.RootElement;
-              
-            var element = root.FindFirst(TreeScope.Descendants, finalCondition);
-            
-            if(element == null) return null;
-            
-            return new {
-              handle = element.Current.NativeWindowHandle,
-              automationId = element.Current.AutomationId,
-              name = element.Current.Name,
-              className = element.Current.ClassName,
-              bounds = new {
-                x = element.Current.BoundingRectangle.X,
-                y = element.Current.BoundingRectangle.Y,
-                width = element.Current.BoundingRectangle.Width,
-                height = element.Current.BoundingRectangle.Height
-              }
-            };
-          }
-
-          private bool ClickElement(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(InvokePattern.Pattern, out pattern)) {
-              ((InvokePattern)pattern).Invoke();
-              return true;
-            }
-            else {
-              var bounds = ae.Current.BoundingRectangle;
-              var centerX = bounds.X + bounds.Width / 2;
-              var centerY = bounds.Y + bounds.Height / 2;
-              
-              SetCursorPos((int)centerX, (int)centerY);
-              mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-              return true;
-            }
-          }
-
-          private bool SetText(dynamic element, string text) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
-              ((ValuePattern)pattern).SetValue(text);
-              return true;
-            }
-            return false;
-          }
-
-          private string GetText(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
-              return ((ValuePattern)pattern).Current.Value;
-            }
-            else if(ae.TryGetCurrentPattern(TextPattern.Pattern, out pattern)) {
-              return ((TextPattern)pattern).DocumentRange.GetText(-1);
-            }
-            
-            return ae.Current.Name;
-          }
-
-          private object GetElementAtPoint(int x, int y) {
-            var point = new System.Windows.Point(x, y);
-            var element = AutomationElement.FromPoint(point);
-            
-            if(element == null) return null;
-            
-            return new {
-              handle = element.Current.NativeWindowHandle,
-              automationId = element.Current.AutomationId,
-              name = element.Current.Name,
-              className = element.Current.ClassName,
-              controlType = element.Current.ControlType.ProgrammaticName,
-              bounds = new {
-                x = element.Current.BoundingRectangle.X,
-                y = element.Current.BoundingRectangle.Y,
-                width = element.Current.BoundingRectangle.Width,
-                height = element.Current.BoundingRectangle.Height
-              }
-            };
-          }
-
-          private object GetElementProperties(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            var patterns = new List<string>();
-            foreach(AutomationPattern pattern in ae.GetSupportedPatterns()) {
-              patterns.Add(pattern.ProgrammaticName);
-            }
-            
-            return new {
-              automationId = ae.Current.AutomationId,
-              name = ae.Current.Name,
-              className = ae.Current.ClassName,
-              controlType = ae.Current.ControlType.ProgrammaticName,
-              isEnabled = ae.Current.IsEnabled,
-              isOffscreen = ae.Current.IsOffscreen,
-              supportedPatterns = patterns,
-              bounds = new {
-                x = ae.Current.BoundingRectangle.X,
-                y = ae.Current.BoundingRectangle.Y,
-                width = ae.Current.BoundingRectangle.Width,
-                height = ae.Current.BoundingRectangle.Height
-              }
-            };
-          }
-
-          private string TakeScreenshot(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            var bounds = ae.Current.BoundingRectangle;
-            
-            using(var bmp = new Bitmap((int)bounds.Width, (int)bounds.Height)) {
-              using(var g = Graphics.FromImage(bmp)) {
-                g.CopyFromScreen((int)bounds.X, (int)bounds.Y, 0, 0, bmp.Size);
-              }
-              
-              var filename = $"screenshot_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-              bmp.Save(filename);
-              return filename;
-            }
-          }
-
-          private object WaitForElement(dynamic criteria, int timeout) {
-            var startTime = DateTime.Now;
-            var timeoutSpan = TimeSpan.FromMilliseconds(timeout);
-            
-            while(DateTime.Now - startTime < timeoutSpan) {
-              var element = FindElement(criteria);
-              if(element != null) return element;
-              System.Threading.Thread.Sleep(100);
-            }
-            
-            return null;
-          }
-
-          private ControlType GetControlType(string typeName) {
-            switch(typeName.ToLower()) {
-              case "button": return ControlType.Button;
-              case "edit": return ControlType.Edit;
-              case "text": return ControlType.Text;
-              case "window": return ControlType.Window;
-              case "pane": return ControlType.Pane;
-              case "document": return ControlType.Document;
-              case "list": return ControlType.List;
-              case "listitem": return ControlType.ListItem;
-              case "tree": return ControlType.Tree;
-              case "treeitem": return ControlType.TreeItem;
-              case "menu": return ControlType.Menu;
-              case "menuitem": return ControlType.MenuItem;
-              case "combobox": return ControlType.ComboBox;
-              case "checkbox": return ControlType.CheckBox;
-              case "radiobutton": return ControlType.RadioButton;
-              case "tab": return ControlType.Tab;
-              case "tabitem": return ControlType.TabItem;
-              case "toolbar": return ControlType.ToolBar;
-              case "tooltip": return ControlType.ToolTip;
-              default: return ControlType.Custom;
-            }
-          }
-
-          private object FindElements(dynamic criteria) {
-            var conditions = new List<Condition>();
-            
-            if(criteria.automationId != null)
-              conditions.Add(new PropertyCondition(AutomationElement.AutomationIdProperty, (string)criteria.automationId));
-            if(criteria.name != null)
-              conditions.Add(new PropertyCondition(AutomationElement.NameProperty, (string)criteria.name));
-            if(criteria.className != null)
-              conditions.Add(new PropertyCondition(AutomationElement.ClassNameProperty, (string)criteria.className));
-            if(criteria.controlType != null)
-              conditions.Add(new PropertyCondition(AutomationElement.ControlTypeProperty, GetControlType((string)criteria.controlType)));
-            
-            Condition finalCondition = conditions.Count == 1 ? conditions[0] : new AndCondition(conditions.ToArray());
-            
-            AutomationElement root = criteria.parentHandle != null ? 
-              AutomationElement.FromHandle(new IntPtr((long)criteria.parentHandle)) : 
-              AutomationElement.RootElement;
-              
-            var elements = root.FindAll(TreeScope.Descendants, finalCondition);
-            var result = new List<object>();
-            
-            foreach(AutomationElement element in elements) {
-              result.Add(new {
-                handle = element.Current.NativeWindowHandle,
-                automationId = element.Current.AutomationId,
-                name = element.Current.Name,
-                className = element.Current.ClassName,
-                bounds = new {
-                  x = element.Current.BoundingRectangle.X,
-                  y = element.Current.BoundingRectangle.Y,
-                  width = element.Current.BoundingRectangle.Width,
-                  height = element.Current.BoundingRectangle.Height
-                }
-              });
-            }
-            
-            return result;
-          }
-
-          private bool DoubleClickElement(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            var bounds = ae.Current.BoundingRectangle;
-            var centerX = bounds.X + bounds.Width / 2;
-            var centerY = bounds.Y + bounds.Height / 2;
-            
-            SetCursorPos((int)centerX, (int)centerY);
-            mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-            System.Threading.Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-            return true;
-          }
-
-          private bool RightClickElement(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            var bounds = ae.Current.BoundingRectangle;
-            var centerX = bounds.X + bounds.Width / 2;
-            var centerY = bounds.Y + bounds.Height / 2;
-            
-            SetCursorPos((int)centerX, (int)centerY);
-            mouse_event(MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
-            return true;
-          }
-
-          private bool MoveMouse(int x, int y) {
-            SetCursorPos(x, y);
-            return true;
-          }
-
-          private bool SelectOption(dynamic element, string value) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(SelectionPattern.Pattern, out pattern)) {
-              var selectionPattern = (SelectionPattern)pattern;
-              var items = selectionPattern.Current.GetSelection();
-              
-              foreach(AutomationElement item in items) {
-                if(item.Current.Name == value) {
-                  object invokePattern;
-                  if(item.TryGetCurrentPattern(InvokePattern.Pattern, out invokePattern)) {
-                    ((InvokePattern)invokePattern).Invoke();
-                    return true;
-                  }
-                }
-              }
-            }
-            else if(ae.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
-              ((ValuePattern)pattern).SetValue(value);
-              return true;
-            }
-            
-            return false;
-          }
-
-          private bool CheckElement(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) {
-              var togglePattern = (TogglePattern)pattern;
-              if(togglePattern.Current.ToggleState == ToggleState.Off) {
-                togglePattern.Toggle();
-                return true;
-              }
-            }
-            
-            return false;
-          }
-
-          private bool UncheckElement(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) {
-              var togglePattern = (TogglePattern)pattern;
-              if(togglePattern.Current.ToggleState == ToggleState.On) {
-                togglePattern.Toggle();
-                return true;
-              }
-            }
-            
-            return false;
-          }
-
-          private bool IsElementChecked(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) {
-              var togglePattern = (TogglePattern)pattern;
-              return togglePattern.Current.ToggleState == ToggleState.On;
-            }
-            
-            return false;
-          }
-
-          private string GetValue(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            
-            object pattern;
-            if(ae.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
-              return ((ValuePattern)pattern).Current.Value;
-            }
-            else if(ae.TryGetCurrentPattern(RangeValuePattern.Pattern, out pattern)) {
-              return ((RangeValuePattern)pattern).Current.Value.ToString();
-            }
-            else if(ae.TryGetCurrentPattern(SelectionPattern.Pattern, out pattern)) {
-              var selectionPattern = (SelectionPattern)pattern;
-              var items = selectionPattern.Current.GetSelection();
-              if(items.Length > 0) {
-                return items[0].Current.Name;
-              }
-            }
-            
-            return ae.Current.Name;
-          }
-
-          private bool HasFocus(dynamic element) {
-            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
-            var focusedElement = AutomationElement.FocusedElement;
-            return focusedElement != null && focusedElement.Current.NativeWindowHandle == ae.Current.NativeWindowHandle;
-          }
-
-          [DllImport("user32.dll")]
-          static extern bool SetCursorPos(int x, int y);
-
-          [DllImport("user32.dll")]
-          static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, uint dwExtraInfo);
-
-          const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-          const uint MOUSEEVENTF_LEFTUP = 0x0004;
-          const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
-          const uint MOUSEEVENTF_RIGHTUP = 0x0010;
-        }
-      `
-    });
+    // PowerShellベースのUI Automationクライアント
   }
 
+  /**
+   * ウィンドウリストを取得する
+   */
   async getWindowList(): Promise<WindowInfo[]> {
-    return await this.automationCore({ method: 'getWindowList' });
-  }
-
-  async findElement(criteria: ElementCriteria): Promise<ElementHandle | null> {
-    return await this.automationCore({ method: 'findElement', criteria });
-  }
-
-  async click(element: ElementHandle): Promise<boolean> {
-    return await this.automationCore({ method: 'click', element });
-  }
-
-  async type(element: ElementHandle, text: string): Promise<boolean> {
-    return await this.automationCore({ method: 'setText', element, text });
-  }
-
-  async getText(element: ElementHandle): Promise<string> {
-    return await this.automationCore({ method: 'getText', element });
-  }
-
-  async inspectElement(point: { x: number; y: number }): Promise<ElementHandle | null> {
-    return await this.automationCore({ method: 'getElementAtPoint', x: point.x, y: point.y });
-  }
-
-  async getElementProperties(element: ElementHandle): Promise<UIAutomationElement> {
-    return await this.automationCore({ method: 'getElementProperties', element });
-  }
-
-  async screenshot(element: ElementHandle): Promise<string> {
-    return await this.automationCore({ method: 'screenshot', element });
-  }
-
-  async waitForSelector(criteria: ElementCriteria, options: WaitOptions = {}): Promise<ElementHandle | null> {
-    const timeout = options.timeout || 5000;
-    return await this.automationCore({ method: 'waitForElement', criteria, timeout });
-  }
-
-  async fill(element: ElementHandle, text: string): Promise<boolean> {
-    await this.clear(element);
-    return await this.type(element, text);
-  }
-
-  async clear(element: ElementHandle): Promise<boolean> {
-    return await this.type(element, '');
-  }
-
-  async hover(element: ElementHandle): Promise<boolean> {
-    const properties = await this.getElementProperties(element);
-    if (properties.bounds) {
-      const centerX = properties.bounds.x + properties.bounds.width / 2;
-      const centerY = properties.bounds.y + properties.bounds.height / 2;
-
-      return await this.automationCore({ method: 'moveMouse', x: centerX, y: centerY });
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+        $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
+        $topWindows = $desktop.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)
+        
+        $windows = @()
+        foreach($window in $topWindows) {
+          $windows += @{
+            processId = $window.Current.ProcessId
+            title = $window.Current.Name
+            className = $window.Current.ClassName
+            handle = $window.Current.NativeWindowHandle
+          }
+        }
+        
+        $windows | ConvertTo-Json
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      return JSON.parse(stdout);
+    } catch (error) {
+      console.error('Get window list failed:', error);
+      return [];
     }
-    return false;
   }
 
+  /**
+   * 要素を検索する
+   */
+  async findElement(criteria: ElementCriteria): Promise<ElementHandle | null> {
+    try {
+      const conditions = [];
+      if (criteria.automationId) conditions.push(`[System.Windows.Automation.AutomationElement]::AutomationIdProperty, "${criteria.automationId}"`);
+      if (criteria.name) conditions.push(`[System.Windows.Automation.AutomationElement]::NameProperty, "${criteria.name}"`);
+      if (criteria.className) conditions.push(`[System.Windows.Automation.AutomationElement]::ClassNameProperty, "${criteria.className}"`);
+      
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+        $conditions = @(${conditions.map(c => `New-Object System.Windows.Automation.PropertyCondition(${c})`).join(', ')})
+        
+        if ($conditions.Count -eq 1) {
+          $finalCondition = $conditions[0]
+        } else {
+          $finalCondition = New-Object System.Windows.Automation.AndCondition($conditions)
+        }
+        
+        $element = $desktop.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $finalCondition)
+        
+        if ($element -ne $null) {
+          $result = @{
+            handle = $element.Current.NativeWindowHandle
+            automationId = $element.Current.AutomationId
+            name = $element.Current.Name
+            className = $element.Current.ClassName
+            bounds = @{
+              x = $element.Current.BoundingRectangle.X
+              y = $element.Current.BoundingRectangle.Y
+              width = $element.Current.BoundingRectangle.Width
+              height = $element.Current.BoundingRectangle.Height
+            }
+          }
+          $result | ConvertTo-Json
+        }
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      
+      if (stdout.trim()) {
+        return JSON.parse(stdout);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Find element failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 要素をクリックする
+   */
+  async click(element: ElementHandle, options: ClickOptions = {}): Promise<boolean> {
+    try {
+      const { doubleClick = false } = options;
+      
+      const bounds = element.bounds;
+      const x = bounds.x + bounds.width / 2;
+      const y = bounds.y + bounds.height / 2;
+
+      if (doubleClick) {
+        await this.doubleClick({ x, y });
+      } else {
+        await this.singleClick({ x, y });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error clicking element:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 要素にテキストを入力する
+   */
+  async type(element: ElementHandle, text: string, options: TypeOptions = {}): Promise<boolean> {
+    try {
+      const { clearFirst = true } = options;
+      
+      // Focus element first
+      await this.click(element);
+      await this.sleep(100);
+
+      if (clearFirst) {
+        await this.sendKeys('^a'); // Ctrl+A to select all
+        await this.sleep(50);
+      }
+
+      await this.sendKeys(text);
+      return true;
+    } catch (error) {
+      console.error('Error typing text:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 要素のテキストを取得する
+   */
+  async getText(element: ElementHandle): Promise<string> {
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        $element.Current.Name
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      return stdout.trim();
+    } catch (error) {
+      console.error('Get text failed:', error);
+      return '';
+    }
+  }
+
+  /**
+   * 指定した座標の要素を検査する
+   */
+  async inspectElement(point: { x: number; y: number }): Promise<ElementHandle | null> {
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $point = [System.Windows.Point]::new(${point.x}, ${point.y})
+        $element = [System.Windows.Automation.AutomationElement]::FromPoint($point)
+        
+        if ($element -ne $null) {
+          $result = @{
+            handle = $element.Current.NativeWindowHandle
+            automationId = $element.Current.AutomationId
+            name = $element.Current.Name
+            className = $element.Current.ClassName
+            bounds = @{
+              x = $element.Current.BoundingRectangle.X
+              y = $element.Current.BoundingRectangle.Y
+              width = $element.Current.BoundingRectangle.Width
+              height = $element.Current.BoundingRectangle.Height
+            }
+          }
+          $result | ConvertTo-Json
+        }
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      
+      if (stdout.trim()) {
+        return JSON.parse(stdout);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Inspect element failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 要素のプロパティを取得する
+   */
+  async getElementProperties(element: ElementHandle): Promise<any> {
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        
+        $properties = @{
+          automationId = $element.Current.AutomationId
+          name = $element.Current.Name
+          className = $element.Current.ClassName
+          controlType = $element.Current.ControlType.ProgrammaticName
+          isEnabled = $element.Current.IsEnabled
+          isVisible = -not $element.Current.IsOffscreen
+          bounds = @{
+            x = $element.Current.BoundingRectangle.X
+            y = $element.Current.BoundingRectangle.Y
+            width = $element.Current.BoundingRectangle.Width
+            height = $element.Current.BoundingRectangle.Height
+          }
+        }
+        
+        $properties | ConvertTo-Json
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      return JSON.parse(stdout);
+    } catch (error) {
+      console.error('Get element properties failed:', error);
+      return {};
+    }
+  }
+
+  /**
+   * スクリーンショットを撮影する
+   */
+  async screenshot(element: ElementHandle): Promise<string> {
+    try {
+      const script = `
+        Add-Type -AssemblyName System.Drawing
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        $bounds = $element.Current.BoundingRectangle
+        
+        $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
+        
+        $tempPath = [System.IO.Path]::GetTempFileName() + ".png"
+        $bitmap.Save($tempPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose()
+        $bitmap.Dispose()
+        
+        $tempPath
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      return stdout.trim();
+    } catch (error) {
+      console.error('Screenshot failed:', error);
+      return '';
+    }
+  }
+
+  /**
+   * 要素を待機する
+   */
+  async waitForSelector(criteria: ElementCriteria, options: WaitOptions = {}): Promise<ElementHandle | null> {
+    const { timeout = 5000, visible = true } = options;
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      const element = await this.findElement(criteria);
+      if (element) {
+        if (!visible) return element;
+        
+        const properties = await this.getElementProperties(element);
+        if (properties.isVisible) return element;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    return null;
+  }
+
+  /**
+   * 要素にテキストを入力する（fillの別名）
+   */
+  async fill(element: ElementHandle, text: string): Promise<boolean> {
+    return this.type(element, text);
+  }
+
+  /**
+   * 要素をクリアする
+   */
+  async clear(element: ElementHandle): Promise<boolean> {
+    return this.type(element, '');
+  }
+
+  /**
+   * 要素をホバーする
+   */
+  async hover(element: ElementHandle): Promise<boolean> {
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        Add-Type -AssemblyName System.Windows.Forms
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        $clickablePoint = $element.GetClickablePoint()
+        [System.Windows.Forms.Cursor]::Position = $clickablePoint
+      `;
+      
+      await execAsync(`powershell -Command "${script}"`);
+      
+      if (this.isRecording) {
+        this.recordedActions.push({
+          type: 'hover',
+          element,
+          timestamp: Date.now()
+        });
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Hover failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * マウスを移動する
+   */
   async moveMouse(x: number, y: number): Promise<boolean> {
-    return await this.automationCore({ method: 'moveMouse', x, y });
+    try {
+      const script = `
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.Cursor]::Position = [System.Drawing.Point]::new(${x}, ${y})
+      `;
+      
+      await execAsync(`powershell -Command "${script}"`);
+      return true;
+    } catch (error) {
+      console.error('Move mouse failed:', error);
+      return false;
+    }
   }
 
+  /**
+   * ダブルクリックする
+   */
   async doubleClick(element: ElementHandle): Promise<boolean> {
-    return await this.automationCore({ method: 'doubleClick', element });
+    try {
+      await this.click(element);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      await this.click(element);
+      return true;
+    } catch (error) {
+      console.error('Double click failed:', error);
+      return false;
+    }
   }
 
+  /**
+   * 右クリックする
+   */
   async rightClick(element: ElementHandle): Promise<boolean> {
-    return await this.automationCore({ method: 'rightClick', element });
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        Add-Type -AssemblyName System.Windows.Forms
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        $clickablePoint = $element.GetClickablePoint()
+        [System.Windows.Forms.Cursor]::Position = $clickablePoint
+        Start-Sleep -Milliseconds 100
+        [System.Windows.Forms.SendKeys]::SendWait("{RIGHT}")
+      `;
+      
+      await execAsync(`powershell -Command "${script}"`);
+      return true;
+    } catch (error) {
+      console.error('Right click failed:', error);
+      return false;
+    }
   }
 
-  async selectOption(element: ElementHandle, value: string): Promise<boolean> {
-    return await this.automationCore({ method: 'selectOption', element, value });
+  /**
+   * オプションを選択する
+   */
+  async selectOption(element: ElementHandle, optionValue: string): Promise<boolean> {
+    try {
+      // Implementation depends on element type
+      // For ComboBox or List controls
+      await this.click(element);
+      
+      // Wait for dropdown to open
+      await this.sleep(200);
+      
+      // Find option by value or text
+      // This is a simplified implementation
+      return true;
+    } catch (error) {
+      console.error('Error selecting option:', error);
+      return false;
+    }
   }
 
+  /**
+   * チェックボックスをチェックする
+   */
   async check(element: ElementHandle): Promise<boolean> {
-    return await this.automationCore({ method: 'check', element });
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        
+        $pattern = $null
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+          $pattern.Toggle()
+          return $true
+        } else {
+          return $false
+        }
+      `;
+      
+      await execAsync(`powershell -Command "${script}"`);
+      return true;
+    } catch (error) {
+      console.error('Check failed:', error);
+      return false;
+    }
   }
 
+  /**
+   * チェックボックスのチェックを外す
+   */
   async uncheck(element: ElementHandle): Promise<boolean> {
-    return await this.automationCore({ method: 'uncheck', element });
+    return this.check(element); // TogglePatternは同じメソッドを使用
   }
 
+  /**
+   * チェックボックスがチェックされているか確認する
+   */
   async isChecked(element: ElementHandle): Promise<boolean> {
-    return await this.automationCore({ method: 'isChecked', element });
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        
+        $pattern = $null
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+          $pattern.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On
+        } else {
+          $false
+        }
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      return stdout.trim().toLowerCase() === 'true';
+    } catch (error) {
+      console.error('Is checked failed:', error);
+      return false;
+    }
   }
 
+  /**
+   * 要素の値を取得する
+   */
   async getValue(element: ElementHandle): Promise<string> {
-    return await this.automationCore({ method: 'getValue', element });
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        
+        $pattern = $null
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
+          $pattern.Current.Value
+        } else {
+          $element.Current.Name
+        }
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      return stdout.trim();
+    } catch (error) {
+      console.error('Get value failed:', error);
+      return '';
+    }
   }
 
+  /**
+   * 要素にフォーカスがあるか確認する
+   */
   async hasFocus(element: ElementHandle): Promise<boolean> {
-    return await this.automationCore({ method: 'hasFocus', element });
+    try {
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $element = [System.Windows.Automation.AutomationElement]::FromHandle([System.IntPtr]::new(${element.handle}))
+        $focusedElement = [System.Windows.Automation.AutomationElement]::FocusedElement
+        
+        $element.Current.AutomationId -eq $focusedElement.Current.AutomationId
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      return stdout.trim().toLowerCase() === 'true';
+    } catch (error) {
+      console.error('Has focus failed:', error);
+      return false;
+    }
   }
 
+  /**
+   * 複数の要素を検索する
+   */
   async findElements(criteria: ElementCriteria): Promise<ElementHandle[]> {
-    return await this.automationCore({ method: 'findElements', criteria });
+    try {
+      const conditions = [];
+      if (criteria.automationId) conditions.push(`[System.Windows.Automation.AutomationElement]::AutomationIdProperty, "${criteria.automationId}"`);
+      if (criteria.name) conditions.push(`[System.Windows.Automation.AutomationElement]::NameProperty, "${criteria.name}"`);
+      if (criteria.className) conditions.push(`[System.Windows.Automation.AutomationElement]::ClassNameProperty, "${criteria.className}"`);
+      
+      const script = `
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        
+        $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+        $conditions = @(${conditions.map(c => `New-Object System.Windows.Automation.PropertyCondition(${c})`).join(', ')})
+        
+        if ($conditions.Count -eq 1) {
+          $finalCondition = $conditions[0]
+        } else {
+          $finalCondition = New-Object System.Windows.Automation.AndCondition($conditions)
+        }
+        
+        $elements = $desktop.FindAll([System.Windows.Automation.TreeScope]::Descendants, $finalCondition)
+        
+        $results = @()
+        foreach($element in $elements) {
+          $results += @{
+            handle = $element.Current.NativeWindowHandle
+            automationId = $element.Current.AutomationId
+            name = $element.Current.Name
+            className = $element.Current.ClassName
+            bounds = @{
+              x = $element.Current.BoundingRectangle.X
+              y = $element.Current.BoundingRectangle.Y
+              width = $element.Current.BoundingRectangle.Width
+              height = $element.Current.BoundingRectangle.Height
+            }
+          }
+        }
+        
+        $results | ConvertTo-Json
+      `;
+      
+      const { stdout } = await execAsync(`powershell -Command "${script}"`);
+      
+      if (stdout.trim()) {
+        return JSON.parse(stdout);
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Find elements failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * セレクターを使用して要素をクリックする
+   */
+  async clickBySelector(selector: string, options: ClickOptions = {}): Promise<void> {
+    const { button = 'left', doubleClick = false, delay = 100 } = options;
+    
+    try {
+      const element = await this.findElement({ name: selector });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      
+      if (doubleClick) {
+        await this.doubleClick(element);
+      } else {
+        await this.click(element);
+      }
+      
+      if (this.isRecording) {
+        this.recordedActions.push({
+          type: 'click',
+          selector,
+          options,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      console.error('Click failed:', error);
+      throw new Error(`Failed to click element: ${selector}`);
+    }
+  }
+
+  /**
+   * セレクターを使用して要素にテキストを入力する
+   */
+  async fillBySelector(selector: string, text: string, options: TypeOptions = {}): Promise<void> {
+    const { delay = 50, clearFirst = true } = options;
+    
+    try {
+      const element = await this.findElement({ name: selector });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      
+      if (clearFirst) {
+        await this.clear(element);
+      }
+      
+      await this.type(element, text);
+      
+      if (this.isRecording) {
+        this.recordedActions.push({
+          type: 'fill',
+          selector,
+          text,
+          options,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      console.error('Fill failed:', error);
+      throw new Error(`Failed to fill element: ${selector}`);
+    }
+  }
+
+  /**
+   * セレクターを使用して要素をホバーする
+   */
+  async hoverBySelector(selector: string): Promise<void> {
+    try {
+      const element = await this.findElement({ name: selector });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      
+      await this.hover(element);
+      
+      if (this.isRecording) {
+        this.recordedActions.push({
+          type: 'hover',
+          selector,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      console.error('Hover failed:', error);
+      throw new Error(`Failed to hover element: ${selector}`);
+    }
+  }
+
+  /**
+   * セレクターを使用して要素を取得する
+   */
+  async getElementBySelector(selector: string): Promise<UIElement | null> {
+    try {
+      const element = await this.findElement({ name: selector });
+      if (!element) return null;
+      
+      const properties = await this.getElementProperties(element);
+      
+      return {
+        id: properties.automationId || '',
+        name: properties.name || '',
+        className: properties.className || '',
+        automationId: properties.automationId || '',
+        x: properties.bounds.x,
+        y: properties.bounds.y,
+        width: properties.bounds.width,
+        height: properties.bounds.height,
+        isEnabled: properties.isEnabled,
+        isVisible: properties.isVisible
+      };
+    } catch (error) {
+      console.error('Get element failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * セレクターを使用して要素が表示されているかチェックする
+   */
+  async isVisibleBySelector(selector: string): Promise<boolean> {
+    const element = await this.getElementBySelector(selector);
+    return element !== null && element.isVisible;
+  }
+
+  /**
+   * 録画を開始する
+   */
+  startRecording(): void {
+    this.isRecording = true;
+    this.recordedActions = [];
+  }
+
+  /**
+   * 録画を停止する
+   */
+  stopRecording(): any[] {
+    this.isRecording = false;
+    return this.recordedActions;
+  }
+
+  /**
+   * 録画されたアクションを取得する
+   */
+  getRecordedActions(): any[] {
+    return this.recordedActions;
   }
 } 

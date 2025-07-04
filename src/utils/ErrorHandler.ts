@@ -167,59 +167,30 @@ export class ErrorHandler {
     }
   }
 
-  async retry<T>(
+  static async retryOperation<T>(
     operation: () => Promise<T>,
-    options: Partial<RetryOptions> = {}
+    maxAttempts: number = 3,
+    delayMs: number = 1000
   ): Promise<T> {
-    const {
-      maxAttempts = 3,
-      delay = 1000,
-      backoffMultiplier = 2,
-      timeout = 30000
-    } = options;
-
-    let lastError: Error;
-    let currentDelay = delay;
-
+    let lastError: Error | null = null;
+    
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        // タイムアウト付きで実行
-        const result = await Promise.race([
-          operation(),
-          new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Operation timeout')), timeout);
-          })
-        ]);
-
-        if (attempt > 1) {
-          this.log(LogLevel.INFO, `Operation succeeded after ${attempt} attempts`);
-        }
-
-        return result;
+        return await operation();
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         
-        this.log(LogLevel.WARN, `Operation failed (attempt ${attempt}/${maxAttempts})`, {
-          error: lastError,
-          attempt,
-          maxAttempts
-        });
-
         if (attempt === maxAttempts) {
+          await errorHandler.error(`Operation failed after ${maxAttempts} attempts`, { error: lastError });
           break;
         }
-
-        // 次の試行まで待機
-        await this.sleep(currentDelay);
-        currentDelay *= backoffMultiplier;
+        
+        await errorHandler.warn(`Operation failed (attempt ${attempt}/${maxAttempts}), retrying...`, { error: lastError });
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
-
-    throw new Error(`Operation failed after ${maxAttempts} attempts. Last error: ${lastError?.message}`);
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    
+    throw new Error(`Operation failed after ${maxAttempts} attempts. Last error: ${lastError?.message || 'Unknown error'}`);
   }
 
   // 便利なログメソッド
@@ -279,6 +250,10 @@ export class ErrorHandler {
 
   setLogLevel(level: LogLevel): void {
     this.logLevel = level;
+  }
+
+  private getLogFormat(entry: LogEntry): string {
+    return `[${entry.timestamp}] ${entry.level}: ${entry.message}${entry.details ? ` | ${JSON.stringify(entry.details)}` : ''}`;
   }
 }
 

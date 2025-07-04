@@ -11,7 +11,7 @@ export interface AppConfig {
     showTooltips: boolean;
     autoSave: boolean;
   };
-  
+
   // テスト実行設定
   test: {
     defaultTimeout: number;
@@ -21,7 +21,7 @@ export interface AppConfig {
     parallelExecution: boolean;
     maxParallelTests: number;
   };
-  
+
   // ログ設定
   logging: {
     level: 'debug' | 'info' | 'warn' | 'error';
@@ -29,7 +29,7 @@ export interface AppConfig {
     retentionDays: number;
     enableConsole: boolean;
   };
-  
+
   // データベース設定
   database: {
     path: string;
@@ -37,7 +37,7 @@ export interface AppConfig {
     backupInterval: number;
     maxBackups: number;
   };
-  
+
   // 自動化設定
   automation: {
     defaultWaitTimeout: number;
@@ -46,7 +46,7 @@ export interface AppConfig {
     enableMouseTracking: boolean;
     enableKeyboardTracking: boolean;
   };
-  
+
   // レポート設定
   reporting: {
     autoGenerate: boolean;
@@ -117,11 +117,11 @@ export class ConfigManager {
   private async loadConfig(): Promise<void> {
     try {
       await fs.ensureDir(this.configDir);
-      
+
       if (await fs.pathExists(this.configPath)) {
         const configData = await fs.readFile(this.configPath, 'utf-8');
         const loadedConfig = JSON.parse(configData);
-        
+
         // デフォルト設定とマージ
         this.config = this.mergeConfig(DEFAULT_CONFIG, loadedConfig);
         await errorHandler.info('Configuration loaded successfully', { path: this.configPath });
@@ -150,7 +150,7 @@ export class ConfigManager {
 
   private mergeConfig(defaultConfig: AppConfig, userConfig: Partial<AppConfig>): AppConfig {
     const merged = { ...defaultConfig };
-    
+
     for (const [section, sectionConfig] of Object.entries(userConfig)) {
       if (sectionConfig && typeof sectionConfig === 'object') {
         merged[section as keyof AppConfig] = {
@@ -159,7 +159,7 @@ export class ConfigManager {
         };
       }
     }
-    
+
     return merged;
   }
 
@@ -183,7 +183,7 @@ export class ConfigManager {
   async updateConfig(updates: Partial<AppConfig>): Promise<void> {
     const oldConfig = { ...this.config };
     this.config = this.mergeConfig(this.config, updates);
-    
+
     await this.saveConfig();
     await this.notifyListeners(oldConfig);
   }
@@ -197,7 +197,7 @@ export class ConfigManager {
       ...this.config[section],
       ...updates
     };
-    
+
     await this.saveConfig();
     await this.notifyListeners(oldConfig);
   }
@@ -209,7 +209,7 @@ export class ConfigManager {
   ): Promise<void> {
     const oldConfig = { ...this.config };
     this.config[section][key] = value;
-    
+
     await this.saveConfig();
     await this.notifyListeners(oldConfig);
   }
@@ -218,7 +218,7 @@ export class ConfigManager {
   async resetConfig(): Promise<void> {
     const oldConfig = { ...this.config };
     this.config = { ...DEFAULT_CONFIG };
-    
+
     await this.saveConfig();
     await this.notifyListeners(oldConfig);
     await errorHandler.info('Configuration reset to defaults');
@@ -227,7 +227,7 @@ export class ConfigManager {
   async resetSection<K extends keyof AppConfig>(section: K): Promise<void> {
     const oldConfig = { ...this.config };
     this.config[section] = { ...DEFAULT_CONFIG[section] };
-    
+
     await this.saveConfig();
     await this.notifyListeners(oldConfig);
     await errorHandler.info(`Configuration section '${section}' reset to defaults`);
@@ -252,20 +252,20 @@ export class ConfigManager {
   async importConfig(data: string, format: 'json' | 'yaml' = 'json'): Promise<void> {
     try {
       let importedConfig: Partial<AppConfig>;
-      
+
       if (format === 'yaml') {
         const yaml = require('js-yaml');
         importedConfig = yaml.load(data);
       } else {
         importedConfig = JSON.parse(data);
       }
-      
+
       // 設定の検証
       this.validateConfig(importedConfig);
-      
+
       const oldConfig = { ...this.config };
       this.config = this.mergeConfig(DEFAULT_CONFIG, importedConfig);
-      
+
       await this.saveConfig();
       await this.notifyListeners(oldConfig);
       await errorHandler.info('Configuration imported successfully', { format });
@@ -281,26 +281,26 @@ export class ConfigManager {
     if (config.ui && typeof config.ui !== 'object') {
       throw new Error('Invalid UI configuration');
     }
-    
+
     if (config.test && typeof config.test !== 'object') {
       throw new Error('Invalid test configuration');
     }
-    
+
     if (config.logging && typeof config.logging !== 'object') {
       throw new Error('Invalid logging configuration');
     }
-    
+
     // 値の範囲チェック
     if (config.test?.defaultTimeout && config.test.defaultTimeout < 1000) {
       throw new Error('Default timeout must be at least 1000ms');
     }
-    
+
     if (config.test?.retryAttempts && config.test.retryAttempts < 0) {
       throw new Error('Retry attempts must be non-negative');
     }
-    
-    if (config.automation?.screenshotQuality && 
-        (config.automation.screenshotQuality < 1 || config.automation.screenshotQuality > 100)) {
+
+    if (config.automation?.screenshotQuality &&
+      (config.automation.screenshotQuality < 1 || config.automation.screenshotQuality > 100)) {
       throw new Error('Screenshot quality must be between 1 and 100');
     }
   }
@@ -309,7 +309,7 @@ export class ConfigManager {
   onConfigChange(callback: (config: AppConfig) => void): () => void {
     const id = Math.random().toString(36).substr(2, 9);
     this.listeners.set(id, new Set([callback]));
-    
+
     return () => {
       this.listeners.delete(id);
     };
@@ -330,13 +330,13 @@ export class ConfigManager {
   // 設定の検証
   async validateCurrentConfig(): Promise<{ valid: boolean; errors: string[] }> {
     const errors: string[] = [];
-    
+
     try {
       this.validateConfig(this.config);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : 'Unknown validation error');
     }
-    
+
     // ファイルパスの検証
     if (this.config.database.path) {
       try {
@@ -345,7 +345,7 @@ export class ConfigManager {
         errors.push(`Invalid database path: ${this.config.database.path}`);
       }
     }
-    
+
     if (this.config.reporting.outputPath) {
       try {
         await fs.ensureDir(this.config.reporting.outputPath);
@@ -353,7 +353,7 @@ export class ConfigManager {
         errors.push(`Invalid reporting output path: ${this.config.reporting.outputPath}`);
       }
     }
-    
+
     return {
       valid: errors.length === 0,
       errors
@@ -367,10 +367,10 @@ export class ConfigManager {
         this.configDir,
         `config_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`
       );
-      
+
       await fs.copyFile(this.configPath, backupPath);
       await errorHandler.info('Configuration backed up', { backupPath });
-      
+
       return backupPath;
     } catch (error) {
       await errorHandler.error('Failed to backup configuration', { error });
@@ -384,10 +384,10 @@ export class ConfigManager {
       if (!await fs.pathExists(backupPath)) {
         throw new Error(`Backup file not found: ${backupPath}`);
       }
-      
+
       const backupData = await fs.readFile(backupPath, 'utf-8');
       const backupConfig = JSON.parse(backupData);
-      
+
       await this.importConfig(backupData, 'json');
       await errorHandler.info('Configuration restored from backup', { backupPath });
     } catch (error) {
@@ -395,6 +395,8 @@ export class ConfigManager {
       throw error;
     }
   }
+
+  // Removed duplicate methods - using existing implementations above
 }
 
 // シングルトンインスタンス

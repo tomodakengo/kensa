@@ -56,7 +56,7 @@ export class LocatorManager {
     try {
       const files = await fs.readdir(this.locatorPath);
       const xmlFiles = files.filter(file => file.endsWith('.xml'));
-      
+
       for (const file of xmlFiles) {
         await this.loadLocatorFile(path.join(this.locatorPath, file));
       }
@@ -70,12 +70,12 @@ export class LocatorManager {
       const content = await fs.readFile(filePath, 'utf-8');
       const parser = new xml2js.Parser();
       const result = await parser.parseStringPromise(content);
-      
+
       if (result.locators && result.locators.page) {
         for (const page of result.locators.page) {
           const pageName = page.$.name;
           const pageLocators: Record<string, LocatorData> = {};
-          
+
           if (page.locator) {
             for (const locator of page.locator) {
               const locatorName = locator.$.name;
@@ -89,7 +89,7 @@ export class LocatorManager {
               };
             }
           }
-          
+
           this.locators.set(pageName, pageLocators);
         }
       }
@@ -100,7 +100,7 @@ export class LocatorManager {
 
   private parseStrategies(strategies: any[]): LocatorStrategy[] {
     if (!strategies) return [];
-    
+
     return strategies.map(strategy => ({
       type: strategy.$.type,
       value: strategy.$.value,
@@ -110,23 +110,23 @@ export class LocatorManager {
 
   async saveLocator(locator: Locator): Promise<{ success: boolean; pageName: string; locatorName: string }> {
     const { pageName, locatorName, ...locatorData } = locator;
-    
+
     if (!this.locators.has(pageName)) {
       this.locators.set(pageName, {});
     }
-    
+
     const pageLocators = this.locators.get(pageName)!;
     pageLocators[locatorName] = locatorData;
-    
+
     await this.saveToFile(pageName);
-    
+
     return { success: true, pageName, locatorName };
   }
 
   private async saveToFile(pageName: string): Promise<void> {
     const pageLocators = this.locators.get(pageName);
     if (!pageLocators) return;
-    
+
     const builder = new xml2js.Builder();
     const xml = builder.buildObject({
       locators: {
@@ -151,25 +151,29 @@ export class LocatorManager {
         }]
       }
     });
-    
+
     const filePath = path.join(this.locatorPath, `${pageName}.xml`);
     await fs.writeFile(filePath, xml, 'utf-8');
   }
 
   async getLocator(fullName: string): Promise<LocatorData | null> {
-    const [pageName, locatorName] = fullName.split('.');
+    const parts = fullName.split('.');
+    if (parts.length < 2) return null;
     
+    const [pageName, locatorName] = parts;
+    if (!pageName || !locatorName) return null;
+
     if (!this.locators.has(pageName)) {
       return null;
     }
-    
+
     const pageLocators = this.locators.get(pageName)!;
     return pageLocators[locatorName] || null;
   }
 
   async getAllLocators(): Promise<FullLocator[]> {
     const allLocators: FullLocator[] = [];
-    
+
     for (const [pageName, pageLocators] of this.locators) {
       for (const [locatorName, locatorData] of Object.entries(pageLocators)) {
         allLocators.push({
@@ -180,20 +184,28 @@ export class LocatorManager {
         });
       }
     }
-    
+
     return allLocators;
   }
 
   async deleteLocator(fullName: string): Promise<{ success: boolean; error?: string }> {
-    const [pageName, locatorName] = fullName.split('.');
+    const parts = fullName.split('.');
+    if (parts.length < 2) {
+      return { success: false, error: 'Invalid locator name format' };
+    }
     
+    const [pageName, locatorName] = parts;
+    if (!pageName || !locatorName) {
+      return { success: false, error: 'Invalid page or locator name' };
+    }
+
     if (!this.locators.has(pageName)) {
       return { success: false, error: 'Page not found' };
     }
-    
+
     const pageLocators = this.locators.get(pageName)!;
     delete pageLocators[locatorName];
-    
+
     if (Object.keys(pageLocators).length === 0) {
       this.locators.delete(pageName);
       // Delete the file
@@ -206,7 +218,7 @@ export class LocatorManager {
     } else {
       await this.saveToFile(pageName);
     }
-    
+
     return { success: true };
   }
 
@@ -214,7 +226,7 @@ export class LocatorManager {
     if (format === 'xml') {
       const builder = new xml2js.Builder();
       const pages = [];
-      
+
       for (const [pageName, pageLocators] of this.locators) {
         pages.push({
           $: { name: pageName },
@@ -236,7 +248,7 @@ export class LocatorManager {
           }))
         });
       }
-      
+
       return builder.buildObject({ locators: { page: pages } });
     } else {
       const allLocators = await this.getAllLocators();
@@ -249,13 +261,13 @@ export class LocatorManager {
       if (format === 'xml') {
         const parser = new xml2js.Parser();
         const result = await parser.parseStringPromise(data);
-        
+
         let imported = 0;
-        
+
         if (result.locators && result.locators.page) {
           for (const page of result.locators.page) {
             const pageName = page.$.name;
-            
+
             if (page.locator) {
               for (const locator of page.locator) {
                 const locatorName = locator.$.name;
@@ -267,29 +279,29 @@ export class LocatorManager {
                   description: locator.$.description,
                   strategies: this.parseStrategies(locator.strategy)
                 };
-                
+
                 await this.saveLocator({
                   pageName,
                   locatorName,
                   ...locatorData
                 });
-                
+
                 imported++;
               }
             }
           }
         }
-        
+
         return { success: true, imported };
       } else {
         const locators: Locator[] = JSON.parse(data);
         let imported = 0;
-        
+
         for (const locator of locators) {
           await this.saveLocator(locator);
           imported++;
         }
-        
+
         return { success: true, imported };
       }
     } catch (error) {
@@ -299,25 +311,29 @@ export class LocatorManager {
   }
 
   getTestSelector(fullName: string): string {
-    const [pageName, locatorName] = fullName.split('.');
+    const parts = fullName.split('.');
+    if (parts.length < 2) return fullName;
     
+    const [pageName, locatorName] = parts;
+    if (!pageName || !locatorName) return fullName;
+
     if (!this.locators.has(pageName)) {
       return fullName; // Return original if not found
     }
-    
+
     const pageLocators = this.locators.get(pageName)!;
     const locator = pageLocators[locatorName];
-    
+
     if (!locator) {
       return fullName; // Return original if not found
     }
-    
+
     // Generate selector based on strategies
     if (locator.strategies && locator.strategies.length > 0) {
       // Sort by priority and return the best strategy
-      const sortedStrategies = locator.strategies.sort((a, b) => a.priority - b.priority);
+      const sortedStrategies = locator.strategies.sort((a: any, b: any) => a.priority - b.priority);
       const bestStrategy = sortedStrategies[0];
-      
+
       switch (bestStrategy.type) {
         case 'automationId':
           return `automationId="${bestStrategy.value}"`;
@@ -333,28 +349,28 @@ export class LocatorManager {
           return fullName;
       }
     }
-    
+
     // Fallback to basic properties
     if (locator.automationId) {
       return `automationId="${locator.automationId}"`;
     }
-    
+
     if (locator.name) {
       return `name="${locator.name}"`;
     }
-    
+
     if (locator.className) {
       return `className="${locator.className}"`;
     }
-    
+
     return fullName;
   }
 
   async searchLocators(query: string): Promise<FullLocator[]> {
     const allLocators = await this.getAllLocators();
     const searchQuery = query.toLowerCase();
-    
-    return allLocators.filter(locator => 
+
+    return allLocators.filter(locator =>
       locator.fullName.toLowerCase().includes(searchQuery) ||
       locator.description?.toLowerCase().includes(searchQuery) ||
       locator.automationId?.toLowerCase().includes(searchQuery) ||
@@ -373,19 +389,19 @@ export class LocatorManager {
 
   async validateLocator(locator: Locator): Promise<{ valid: boolean; errors: string[] }> {
     const errors: string[] = [];
-    
+
     if (!locator.pageName) {
       errors.push('Page name is required');
     }
-    
+
     if (!locator.locatorName) {
       errors.push('Locator name is required');
     }
-    
+
     if (!locator.automationId && !locator.name && !locator.className && !locator.controlType) {
       errors.push('At least one identifier (automationId, name, className, or controlType) is required');
     }
-    
+
     if (locator.strategies) {
       for (const strategy of locator.strategies) {
         if (!strategy.type) {
@@ -399,7 +415,7 @@ export class LocatorManager {
         }
       }
     }
-    
+
     return {
       valid: errors.length === 0,
       errors

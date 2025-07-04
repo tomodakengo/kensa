@@ -1,8 +1,6 @@
-import * as path from 'path';
-import * as fs from 'fs-extra';
-import * as yaml from 'js-yaml';
 import { DatabaseManager } from '../database/DatabaseManager';
 import type { TestScenario, TestReport } from '../types';
+import * as yaml from 'js-yaml';
 
 interface Scenario {
   id?: number;
@@ -244,10 +242,10 @@ export class ScenarioManager {
   async createFolder(name: string, parentId?: number): Promise<Folder> {
     const result = await this.dbManager.run(
       'INSERT INTO folders (name, parent_id) VALUES (?, ?)',
-      [name, parentId]
+      [name, parentId || null]
     );
     
-    return { id: result.lastID, name, parent_id: parentId };
+    return { id: result.lastID, name, parent_id: parentId || undefined };
   }
 
   async getFolders(): Promise<Folder[]> {
@@ -339,7 +337,7 @@ export class ScenarioManager {
     return importedScenarios;
   }
 
-  async updateScenarioStatus(id: number, status: string, report?: TestReport): Promise<void> {
+  async updateScenarioStatus(id: number, status: string): Promise<void> {
     const updates: ScenarioUpdate = {
       last_status: status,
       last_run: new Date().toISOString(),
