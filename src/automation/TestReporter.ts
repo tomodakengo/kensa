@@ -26,21 +26,21 @@ export class TestReporter {
   }
 
   async generateReport(testResults: TestResult[]): Promise<TestReport> {
-    const timestamp = new Date().toISOString();
-    const totalTests = testResults.length;
+    const total = testResults.length;
     const passed = testResults.filter(r => r.status === 'passed').length;
     const failed = testResults.filter(r => r.status === 'failed').length;
-    const running = testResults.filter(r => r.status === 'running').length;
-    const totalDuration = testResults.reduce((sum, r) => sum + r.duration, 0);
+    const skipped = testResults.filter(r => r.status === 'skipped').length;
 
     const report: TestReport = {
       id: Date.now(),
-      timestamp,
-      totalTests,
-      passed,
-      failed,
-      skipped: 0, // No skipped status in current TestResult type
-      duration: totalDuration,
+      timestamp: new Date().toISOString(),
+      summary: {
+        total,
+        passed,
+        failed,
+        skipped,
+        duration: testResults.reduce((sum, r) => sum + r.duration, 0)
+      },
       details: testResults.map(step => ({
         id: step.id,
         scenarioId: step.scenarioId,
@@ -48,8 +48,8 @@ export class TestReporter {
         message: step.message,
         timestamp: step.timestamp,
         duration: step.duration,
-        screenshot: step.screenshot || '',
-        error: step.error
+        screenshot: step.screenshot,
+        error: step.error || undefined
       }))
     };
 
@@ -106,10 +106,10 @@ export class TestReporter {
     <div class="summary">
         <h2>Summary</h2>
         <p>Generated: ${report.timestamp}</p>
-        <p>Total Tests: ${report.totalTests}</p>
-        <p class="passed">Passed: ${report.passed}</p>
-        <p class="failed">Failed: ${report.failed}</p>
-        <p>Duration: ${report.duration}ms</p>
+        <p>Total Tests: ${report.summary.total}</p>
+        <p class="passed">Passed: ${report.summary.passed}</p>
+        <p class="failed">Failed: ${report.summary.failed}</p>
+        <p>Duration: ${report.summary.duration}ms</p>
     </div>
     <h2>Test Results</h2>
     <table>
@@ -139,10 +139,10 @@ export class TestReporter {
 <testReport>
     <summary>
         <timestamp>${report.timestamp}</timestamp>
-        <totalTests>${report.totalTests}</totalTests>
-        <passed>${report.passed}</passed>
-        <failed>${report.failed}</failed>
-        <duration>${report.duration}</duration>
+        <totalTests>${report.summary.total}</totalTests>
+        <passed>${report.summary.passed}</passed>
+        <failed>${report.summary.failed}</failed>
+        <duration>${report.summary.duration}</duration>
     </summary>
     <results>
         ${report.details.map(result => `
@@ -216,10 +216,10 @@ ${testResults.map(result => `
 ## Summary
 
 - **Generated:** ${report.timestamp}
-- **Total Tests:** ${report.totalTests}
-- **Passed:** ${report.passed}
-- **Failed:** ${report.failed}
-- **Duration:** ${report.duration}ms
+- **Total Tests:** ${report.summary.total}
+- **Passed:** ${report.summary.passed}
+- **Failed:** ${report.summary.failed}
+- **Duration:** ${report.summary.duration}ms
 
 ## Test Results
 

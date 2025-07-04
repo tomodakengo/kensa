@@ -80,15 +80,17 @@ export class TestRunner {
       results.duration = results.endTime - results.startTime;
 
       // Generate report - Convert TestExecutionResult to TestResult[]
+      const screenshot = await this.takeScreenshot();
       const testResults: TestResult[] = [{
         id: Date.now(),
-        scenarioId: scenario.id,
+        scenarioId: scenario.id || 0,
         status: results.status === 'passed' ? 'passed' : 'failed',
-        message: results.error || 'Test completed',
+        message: results.status === 'passed' ? 'Test passed successfully' : results.error || 'Test failed',
         timestamp: new Date().toISOString(),
-        duration: results.duration,
-        error: results.error,
-        stack: results.stack
+        duration: Date.now() - startTime,
+        screenshot: screenshot || '',
+        error: results.error || undefined,
+        stack: results.stack || undefined
       }];
 
       const report = await this.reporter.generateReport(testResults);

@@ -251,10 +251,6 @@ export class ErrorHandler {
   setLogLevel(level: LogLevel): void {
     this.logLevel = level;
   }
-
-  private getLogFormat(entry: LogEntry): string {
-    return `[${entry.timestamp}] ${entry.level}: ${entry.message}${entry.details ? ` | ${JSON.stringify(entry.details)}` : ''}`;
-  }
 }
 
 // シングルトンインスタンス

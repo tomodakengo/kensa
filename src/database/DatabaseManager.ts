@@ -1,6 +1,5 @@
 import * as sqlite3 from 'sqlite3';
-import * as path from 'path';
-import type { TestReport, TestResult } from '../types';
+import type { TestReport } from '../types';
 import { ErrorHandler } from '../utils/ErrorHandler';
 import { DatabaseError } from '../types';
 
@@ -44,10 +43,7 @@ interface DatabaseStats {
   recentResults: number;
 }
 
-interface BackupOptions {
-  filename?: string;
-  compress?: boolean;
-}
+
 
 export class DatabaseManager {
   private dbPath: string;
@@ -77,7 +73,7 @@ export class DatabaseManager {
           return;
         }
 
-        this.db.run(query, params, function(err) {
+        this.db.run(query, params, function (err) {
           if (err) {
             reject(err);
           } else {

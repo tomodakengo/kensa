@@ -21,15 +21,16 @@ export interface TestScenario {
 }
 
 export interface Locator {
-  id: number;
+  id?: number | undefined;
   name: string;
+  pageName: string;
   selector: string;
-  description?: string;
-  type: 'css' | 'xpath' | 'id' | 'name';
+  description: string;
+  folder_id?: number | undefined;
+  locatorName: string;
   createdAt: string;
   updatedAt: string;
-  pageName?: string;
-  locatorName?: string;
+  type?: 'css' | 'xpath' | 'id' | 'name' | undefined;
 }
 
 export interface TestResult {
@@ -39,9 +40,9 @@ export interface TestResult {
   message: string;
   timestamp: string;
   duration: number;
-  screenshot?: string;
-  error?: string;
-  stack?: string;
+  screenshot: string;
+  error?: string | undefined;
+  stack?: string | undefined;
 }
 
 export interface Assertion {
@@ -64,11 +65,13 @@ export interface Snapshot {
 export interface TestReport {
   id: number;
   timestamp: string;
-  totalTests: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  duration: number;
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    duration: number;
+  };
   details: TestResult[];
 }
 
@@ -91,22 +94,19 @@ export interface UIAutomationElement {
 export interface RecordingEvent {
   type: 'click' | 'type' | 'hover' | 'keypress' | 'scroll';
   timestamp: number;
-  element?: UIAutomationElement;
-  value?: string;
-  coordinates?: { x: number; y: number };
-  key?: string;
+  element?: UIAutomationElement | undefined;
+  value?: string | undefined;
+  coordinates?: { x: number; y: number } | undefined;
+  key?: string | undefined;
 }
 
 export interface RecordedAction {
   type: string;
   timestamp: number;
-  element?: UIAutomationElement;
-  selector?: string;
-  value?: string;
-  coordinates?: { x: number; y: number };
-  from?: { x: number; y: number };
-  to?: { x: number; y: number };
-  key?: string;
+  element: any;
+  coordinates?: { x: number; y: number } | undefined;
+  value?: string | undefined;
+  key?: string | undefined;
 }
 
 export interface AssertionResult {
@@ -156,19 +156,21 @@ export interface AppSettings {
 
 // Database types
 export interface Scenario {
-  id: number;
+  id?: number | undefined;
   name: string;
-  description?: string;
-  folder_id?: number;
+  description: string;
+  folder_id?: number | undefined;
+  test_data: TestScenario;
   created_at: string;
   updated_at: string;
-  test_data: TestScenario;
 }
 
 export interface Folder {
-  id: number;
+  id?: number | undefined;
   name: string;
-  parent_id?: number;
+  parent_id?: number | undefined;
+  created_at?: string | undefined;
+  updated_at?: string | undefined;
 }
 
 // Configuration types
@@ -299,4 +301,13 @@ export class ValidationError extends Error {
     super(message);
     this.name = 'ValidationError';
   }
+}
+
+export interface LogEntry {
+  id?: number | undefined;
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  details?: any | undefined;
+  stack?: string | undefined;
 } 

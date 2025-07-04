@@ -159,7 +159,7 @@ export class LocatorManager {
   async getLocator(fullName: string): Promise<LocatorData | null> {
     const parts = fullName.split('.');
     if (parts.length < 2) return null;
-    
+
     const [pageName, locatorName] = parts;
     if (!pageName || !locatorName) return null;
 
@@ -193,7 +193,7 @@ export class LocatorManager {
     if (parts.length < 2) {
       return { success: false, error: 'Invalid locator name format' };
     }
-    
+
     const [pageName, locatorName] = parts;
     if (!pageName || !locatorName) {
       return { success: false, error: 'Invalid page or locator name' };
@@ -311,59 +311,30 @@ export class LocatorManager {
   }
 
   getTestSelector(fullName: string): string {
-    const parts = fullName.split('.');
-    if (parts.length < 2) return fullName;
-    
-    const [pageName, locatorName] = parts;
-    if (!pageName || !locatorName) return fullName;
+    const [pageName, locatorName] = fullName.split('.');
+    if (!pageName || !locatorName) return '';
 
-    if (!this.locators.has(pageName)) {
-      return fullName; // Return original if not found
-    }
+    const pageLocators = this.locators.get(pageName);
+    if (!pageLocators) return '';
 
-    const pageLocators = this.locators.get(pageName)!;
     const locator = pageLocators[locatorName];
+    if (!locator) return '';
 
-    if (!locator) {
-      return fullName; // Return original if not found
-    }
-
-    // Generate selector based on strategies
-    if (locator.strategies && locator.strategies.length > 0) {
-      // Sort by priority and return the best strategy
-      const sortedStrategies = locator.strategies.sort((a: any, b: any) => a.priority - b.priority);
-      const bestStrategy = sortedStrategies[0];
-
-      switch (bestStrategy.type) {
-        case 'automationId':
-          return `automationId="${bestStrategy.value}"`;
-        case 'name':
-          return `name="${bestStrategy.value}"`;
-        case 'className':
-          return `className="${bestStrategy.value}"`;
-        case 'controlType':
-          return `controlType="${bestStrategy.value}"`;
-        case 'xpath':
-          return bestStrategy.value;
-        default:
-          return fullName;
-      }
-    }
-
-    // Fallback to basic properties
+    // Generate selector from available properties
     if (locator.automationId) {
       return `automationId="${locator.automationId}"`;
     }
-
     if (locator.name) {
       return `name="${locator.name}"`;
     }
-
     if (locator.className) {
       return `className="${locator.className}"`;
     }
+    if (locator.controlType) {
+      return `controlType="${locator.controlType}"`;
+    }
 
-    return fullName;
+    return '';
   }
 
   async searchLocators(query: string): Promise<FullLocator[]> {

@@ -4,20 +4,17 @@ import * as fs from 'fs-extra';
 import { UIAutomationClient } from './automation/UIAutomationClient';
 import { TestRecorder } from './automation/TestRecorder';
 import { TestRunner } from './automation/TestRunner';
-import { DatabaseManager } from './database/DatabaseManager';
-import { ScenarioManager } from './managers/ScenarioManager';
-import { LocatorManager } from './managers/LocatorManager';
 import { TestReporter } from './automation/TestReporter';
-import { AssertionEngine } from './automation/AssertionEngine';
-import { errorHandler } from './utils/ErrorHandler';
-import { configManager } from './utils/ConfigManager';
+import { LocatorManager } from './managers/LocatorManager';
+import { ScenarioManager } from './managers/ScenarioManager';
+import { DatabaseManager } from './database/DatabaseManager';
+import { ConfigManager } from './utils/ConfigManager';
 import type {
   TestScenario,
   Locator,
   AppSettings,
-  TestReport,
-  RecordingEvent,
-  TestResult
+  TestResult,
+  Scenario
 } from './types';
 
 class MainProcess {
@@ -37,19 +34,21 @@ class MainProcess {
 
   private async initializeComponents(): Promise<void> {
     try {
-      await errorHandler.info('Initializing application components');
+      console.log('Initializing application components');
 
       // 設定の初期化
       this.settings = this.loadSettings();
 
       // 設定の検証
+      const configManager = new ConfigManager();
       const configValidation = await configManager.validateCurrentConfig();
       if (!configValidation.valid) {
-        await errorHandler.warn('Configuration validation failed', { errors: configValidation.errors });
+        console.warn('Configuration validation failed', { errors: configValidation.errors });
       }
 
       // データベースの初期化
       this.databaseManager = new DatabaseManager(this.settings.databasePath);
+      await this.databaseManager.connect();
 
       // マネージャーの初期化
       this.scenarioManager = new ScenarioManager(this.databaseManager);
@@ -61,9 +60,9 @@ class MainProcess {
       this.testRunner = new TestRunner(this.uiClient);
       this.testReporter = new TestReporter(this.settings.reportPath);
 
-      await errorHandler.info('Application components initialized successfully');
+      console.log('Application components initialized successfully');
     } catch (error) {
-      await errorHandler.error('Failed to initialize application components', { error });
+      console.error('Failed to initialize application components', { error });
       throw error;
     }
   }
@@ -75,9 +74,9 @@ class MainProcess {
         await this.initializeComponents();
         this.createWindow();
         this.setupIpcHandlers();
-        await errorHandler.info('Application started successfully');
+        console.log('Application started successfully');
       } catch (error) {
-        await errorHandler.error('Failed to start application', { error });
+        console.error('Failed to start application', { error });
         app.quit();
       }
     });
@@ -101,18 +100,14 @@ class MainProcess {
 
   private createWindow(): void {
     this.mainWindow = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      minWidth: 1000,
-      minHeight: 700,
+      width: 1200,
+      height: 800,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        enableRemoteModule: false,
         preload: path.join(__dirname, 'preload.js')
       },
       icon: path.join(__dirname, '../assets/icon.ico'),
-      titleBarStyle: 'default',
       show: false
     });
 
@@ -190,12 +185,20 @@ class MainProcess {
     });
 
     // ロケーター管理
-    ipcMain.handle('save-locator', async (_, locator: Locator) => {
+    ipcMain.handle('save-locator', async (_, data: any) => {
       try {
-        // Ensure required properties are set
-        if (!locator.pageName || !locator.locatorName) {
-          throw new Error('Locator must have pageName and locatorName properties');
-        }
+        const locator: Locator = {
+          name: data.name,
+          pageName: data.pageName || '',
+          selector: data.selector,
+          description: data.description || '',
+          locatorName: data.locatorName || '',
+          type: data.type || undefined,
+          folder_id: data.folder_id || undefined,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
         await this.locatorManager.saveLocator(locator);
         return { success: true };
       } catch (error) {
@@ -214,15 +217,17 @@ class MainProcess {
     });
 
     // シナリオ管理
-    ipcMain.handle('save-scenario', async (_, scenario: TestScenario) => {
+    ipcMain.handle('save-scenario', async (_, data: any) => {
       try {
-        // Convert TestScenario to Scenario format for ScenarioManager
-        const scenarioData = {
-          name: scenario.name,
-          description: scenario.description,
-          folder_id: undefined,
-          test_data: scenario
+        const scenarioData: Omit<Scenario, 'id'> = {
+          name: data.name,
+          description: data.description || '',
+          folder_id: data.folder_id || undefined,
+          test_data: data.test_data,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         };
+
         await this.scenarioManager.saveScenario(scenarioData);
         return { success: true };
       } catch (error) {
@@ -282,7 +287,7 @@ class MainProcess {
 
         if (!result.canceled && result.filePaths.length > 0) {
           const filePath = result.filePaths[0];
-          if (await fs.pathExists(filePath)) {
+          if (filePath && await fs.pathExists(filePath)) {
             const content = await fs.readFile(filePath, 'utf-8');
             return JSON.parse(content);
           }
@@ -352,7 +357,7 @@ class MainProcess {
   private async cleanup(): Promise<void> {
     try {
       // 記録を停止
-      if (this.testRecorder && this.testRecorder.isRecording()) {
+      if (this.testRecorder && this.testRecorder.isRecordingActive()) {
         await this.testRecorder.stopRecording();
       }
 

@@ -1,35 +1,24 @@
 import { UIAutomationClient } from './UIAutomationClient';
-import type { UIAutomationElement, RecordingEvent, MousePosition, RecordedAction } from '../types';
-
-interface ElementSelector {
-  type: 'id' | 'name' | 'className' | 'xpath';
-  value: string;
-  priority: number;
-}
+import type { RecordingEvent, RecordedAction, UIAutomationElement, MousePosition } from '../types';
 
 export class TestRecorder {
-  private automationClient: UIAutomationClient;
-  private isRecording: boolean = false;
-  private recordedActions: RecordedAction[] = [];
+  private isRecordingFlag = false;
   private recordedEvents: RecordingEvent[] = [];
-  private recordingStartTime: number = 0;
 
-  constructor(automationClient: UIAutomationClient) {
-    this.automationClient = automationClient;
+  constructor(_automationClient: UIAutomationClient) {
+    // Store reference for future use
   }
 
   /**
    * 録画を開始する
    */
   async startRecording(): Promise<void> {
-    if (this.isRecording) {
+    if (this.isRecordingFlag) {
       throw new Error('Recording is already in progress');
     }
 
-    this.isRecording = true;
-    this.recordedActions = [];
+    this.isRecordingFlag = true;
     this.recordedEvents = [];
-    this.recordingStartTime = Date.now();
     
     console.log('Test recording started');
   }
@@ -38,15 +27,13 @@ export class TestRecorder {
    * 録画を停止する
    */
   async stopRecording(): Promise<RecordingEvent[]> {
-    if (!this.isRecording) {
+    if (!this.isRecordingFlag) {
       throw new Error('No recording in progress');
     }
 
-    this.isRecording = false;
-    const actions = [...this.recordedActions];
-    this.recordedActions = [];
+    this.isRecordingFlag = false;
     
-    console.log(`Test recording stopped. Recorded ${actions.length} actions`);
+    console.log(`Test recording stopped. Recorded ${this.recordedEvents.length} events`);
     return [...this.recordedEvents];
   }
 
@@ -54,28 +41,25 @@ export class TestRecorder {
    * 録画状態を取得する
    */
   isRecordingActive(): boolean {
-    return this.isRecording;
+    return this.isRecordingFlag;
   }
 
   /**
    * クリック操作を記録する
    */
   async recordClick(element: any, coordinates?: MousePosition): Promise<void> {
-    if (!this.isRecording) return;
-
     const action: RecordedAction = {
       type: 'click',
-      timestamp: Date.now() - this.recordingStartTime,
+      timestamp: Date.now(),
       element,
-      coordinates
+      coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     };
 
-    this.recordedActions.push(action);
     this.recordEvent({
       type: 'click',
-      timestamp: Date.now(),
-      element: element,
-      coordinates
+      timestamp: action.timestamp,
+      element: this.convertToUIAutomationElement(element),
+      coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     });
   }
 
@@ -83,20 +67,19 @@ export class TestRecorder {
    * テキスト入力操作を記録する
    */
   async recordType(element: any, text: string): Promise<void> {
-    if (!this.isRecording) return;
+    if (!this.isRecordingFlag) return;
 
     const action: RecordedAction = {
       type: 'type',
-      timestamp: Date.now() - this.recordingStartTime,
+      timestamp: Date.now(),
       element,
       value: text
     };
 
-    this.recordedActions.push(action);
     this.recordEvent({
       type: 'type',
-      timestamp: Date.now(),
-      element: element,
+      timestamp: action.timestamp,
+      element: this.convertToUIAutomationElement(element),
       value: text
     });
   }
@@ -105,21 +88,18 @@ export class TestRecorder {
    * ホバー操作を記録する
    */
   async recordHover(element: any, coordinates?: MousePosition): Promise<void> {
-    if (!this.isRecording) return;
-
     const action: RecordedAction = {
       type: 'hover',
-      timestamp: Date.now() - this.recordingStartTime,
+      timestamp: Date.now(),
       element,
-      coordinates
+      coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     };
 
-    this.recordedActions.push(action);
     this.recordEvent({
       type: 'hover',
-      timestamp: Date.now(),
-      element: element,
-      coordinates
+      timestamp: action.timestamp,
+      element: this.convertToUIAutomationElement(element),
+      coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     });
   }
 
@@ -127,55 +107,66 @@ export class TestRecorder {
    * キープレス操作を記録する
    */
   async recordKeyPress(key: string): Promise<void> {
-    if (!this.isRecording) return;
+    if (!this.isRecordingFlag) return;
 
     const action: RecordedAction = {
       type: 'keypress',
-      timestamp: Date.now() - this.recordingStartTime,
+      timestamp: Date.now(),
+      element: null,
       key
     };
 
-    this.recordedActions.push(action);
     this.recordEvent({
       type: 'keypress',
-      timestamp: Date.now(),
-      key
+      timestamp: action.timestamp,
+      element: undefined,
+      value: key
     });
   }
 
   /**
    * ドラッグ操作を記録する
    */
-  async recordDrag(from: MousePosition, to: MousePosition): Promise<void> {
-    if (!this.isRecording) return;
+  async recordDrag(from: MousePosition, _to: MousePosition): Promise<void> {
+    if (!this.isRecordingFlag) return;
 
     const action: RecordedAction = {
       type: 'drag',
-      timestamp: Date.now() - this.recordingStartTime,
-      from,
-      to
+      timestamp: Date.now(),
+      element: null,
+      coordinates: { x: from.x, y: from.y }
     };
 
-    this.recordedActions.push(action);
+    this.recordEvent({
+      type: 'scroll',
+      timestamp: action.timestamp,
+      element: undefined,
+      value: undefined,
+      coordinates: { x: from.x, y: from.y },
+      key: undefined
+    });
   }
 
   /**
    * スクロール操作を記録する
    */
   async recordScroll(direction: 'up' | 'down' | 'left' | 'right', amount: number): Promise<void> {
-    if (!this.isRecording) return;
+    if (!this.isRecordingFlag) return;
 
     const action: RecordedAction = {
       type: 'scroll',
-      timestamp: Date.now() - this.recordingStartTime,
+      timestamp: Date.now(),
+      element: null,
       value: `${direction}:${amount}`
     };
 
-    this.recordedActions.push(action);
     this.recordEvent({
       type: 'scroll',
-      timestamp: Date.now(),
-      value: `${direction}:${amount}`
+      timestamp: action.timestamp,
+      element: undefined,
+      value: `${direction}:${amount}`,
+      coordinates: undefined,
+      key: undefined
     });
   }
 
@@ -209,89 +200,42 @@ export class TestRecorder {
   }
 
   /**
-   * 要素のセレクターを生成する
-   */
-  private generateSelector(element: any): string {
-    if (!element) return '';
-
-    const selectors: ElementSelector[] = [];
-
-    // AutomationIdが最優先
-    if (element.automationId) {
-      selectors.push({
-        type: 'id',
-        value: element.automationId,
-        priority: 1
-      });
-    }
-
-    // Name属性
-    if (element.name) {
-      selectors.push({
-        type: 'name',
-        value: element.name,
-        priority: 2
-      });
-    }
-
-    // ClassName
-    if (element.className) {
-      selectors.push({
-        type: 'className',
-        value: element.className,
-        priority: 3
-      });
-    }
-
-    // 優先度順にソート
-    selectors.sort((a, b) => a.priority - b.priority);
-
-    // 最適なセレクターを選択
-    const bestSelector = selectors[0];
-    if (!bestSelector) {
-      return '';
-    }
-
-    return `${bestSelector.type}="${bestSelector.value}"`;
-  }
-
-  /**
    * 記録されたアクションを取得する
    */
   getRecordedActions(): RecordedAction[] {
-    return [...this.recordedActions];
+    return this.recordedEvents.map(event => ({
+      type: event.type,
+      timestamp: event.timestamp,
+      element: event.element || undefined,
+      coordinates: event.coordinates || undefined,
+      value: event.value || undefined,
+      key: event.key || undefined
+    }));
   }
 
   /**
    * 記録されたアクションをクリアする
    */
   clearRecordedActions(): void {
-    this.recordedActions = [];
+    this.recordedEvents = [];
   }
 
   /**
    * 録画時間を取得する
    */
   getRecordingDuration(): number {
-    if (!this.recordingStartTime) return 0;
-    return Date.now() - this.recordingStartTime;
+    if (this.recordedEvents.length === 0) return 0;
+    const lastEvent = this.recordedEvents[this.recordedEvents.length - 1];
+    const firstEvent = this.recordedEvents[0];
+    if (!lastEvent || !firstEvent) return 0;
+    return lastEvent.timestamp - firstEvent.timestamp;
   }
 
   /**
    * 録画イベントを生成する
    */
   generateRecordingEvents(): RecordingEvent[] {
-    return this.recordedActions.map(action => {
-      const event: RecordingEvent = {
-        type: action.type as 'click' | 'type' | 'hover' | 'keypress' | 'scroll',
-        timestamp: action.timestamp,
-        element: action.element,
-        value: action.value,
-        coordinates: action.coordinates,
-        key: action.key
-      };
-      return event;
-    });
+    return [...this.recordedEvents];
   }
 
   /**
@@ -302,9 +246,9 @@ export class TestRecorder {
       metadata: {
         recordedAt: new Date().toISOString(),
         duration: this.getRecordingDuration(),
-        actionCount: this.recordedActions.length
+        actionCount: this.recordedEvents.length
       },
-      actions: this.recordedActions
+      actions: this.getRecordedActions()
     };
 
     switch (format) {
@@ -322,18 +266,18 @@ export class TestRecorder {
   }
 
   private recordEvent(event: RecordingEvent): void {
-    if (this.isRecording) {
-      // Ensure element is properly set or undefined
-      const validatedEvent: RecordingEvent = {
-        type: event.type,
-        timestamp: event.timestamp,
-        element: event.element || undefined,
-        value: event.value,
-        coordinates: event.coordinates,
-        key: event.key
-      };
+    if (!this.isRecordingFlag) return;
 
-      this.recordedEvents.push(validatedEvent);
-    }
+    // Ensure all optional properties are properly handled
+    const eventToRecord: RecordingEvent = {
+      type: event.type,
+      timestamp: event.timestamp,
+      element: event.element || undefined,
+      value: event.value || undefined,
+      coordinates: event.coordinates || undefined,
+      key: event.key || undefined
+    };
+
+    this.recordedEvents.push(eventToRecord);
   }
 } 

@@ -123,7 +123,7 @@ export class ConfigManager {
         const loadedConfig = JSON.parse(configData);
 
         // デフォルト設定とマージ
-        this.config = this.mergeConfig(DEFAULT_CONFIG, loadedConfig);
+        this.config = this.mergeConfigs(DEFAULT_CONFIG, loadedConfig);
         await errorHandler.info('Configuration loaded successfully', { path: this.configPath });
       } else {
         // デフォルト設定でファイルを作成
@@ -148,15 +148,22 @@ export class ConfigManager {
     }
   }
 
-  private mergeConfig(defaultConfig: AppConfig, userConfig: Partial<AppConfig>): AppConfig {
+  private mergeConfigs(defaultConfig: AppConfig, userConfig: Partial<AppConfig>): AppConfig {
     const merged = { ...defaultConfig };
 
-    for (const [section, sectionConfig] of Object.entries(userConfig)) {
-      if (sectionConfig && typeof sectionConfig === 'object') {
-        merged[section as keyof AppConfig] = {
-          ...merged[section as keyof AppConfig],
-          ...sectionConfig
-        };
+    for (const section in userConfig) {
+      if (userConfig.hasOwnProperty(section)) {
+        const userSection = userConfig[section as keyof AppConfig];
+        const defaultSection = defaultConfig[section as keyof AppConfig];
+
+        if (userSection && typeof userSection === 'object' && !Array.isArray(userSection)) {
+          merged[section as keyof AppConfig] = {
+            ...defaultSection,
+            ...userSection
+          } as any;
+        } else if (userSection !== undefined) {
+          merged[section as keyof AppConfig] = userSection as any;
+        }
       }
     }
 
@@ -181,25 +188,23 @@ export class ConfigManager {
 
   // 設定の更新
   async updateConfig(updates: Partial<AppConfig>): Promise<void> {
-    const oldConfig = { ...this.config };
-    this.config = this.mergeConfig(this.config, updates);
+    this.config = this.mergeConfigs(this.config, updates);
 
     await this.saveConfig();
-    await this.notifyListeners(oldConfig);
+    await this.notifyListeners();
   }
 
   async updateSection<K extends keyof AppConfig>(
     section: K,
     updates: Partial<AppConfig[K]>
   ): Promise<void> {
-    const oldConfig = { ...this.config };
     this.config[section] = {
       ...this.config[section],
       ...updates
     };
 
     await this.saveConfig();
-    await this.notifyListeners(oldConfig);
+    await this.notifyListeners();
   }
 
   async setValue<K extends keyof AppConfig, S extends keyof AppConfig[K]>(
@@ -207,29 +212,26 @@ export class ConfigManager {
     key: S,
     value: AppConfig[K][S]
   ): Promise<void> {
-    const oldConfig = { ...this.config };
     this.config[section][key] = value;
 
     await this.saveConfig();
-    await this.notifyListeners(oldConfig);
+    await this.notifyListeners();
   }
 
   // 設定のリセット
   async resetConfig(): Promise<void> {
-    const oldConfig = { ...this.config };
     this.config = { ...DEFAULT_CONFIG };
 
     await this.saveConfig();
-    await this.notifyListeners(oldConfig);
+    await this.notifyListeners();
     await errorHandler.info('Configuration reset to defaults');
   }
 
   async resetSection<K extends keyof AppConfig>(section: K): Promise<void> {
-    const oldConfig = { ...this.config };
     this.config[section] = { ...DEFAULT_CONFIG[section] };
 
     await this.saveConfig();
-    await this.notifyListeners(oldConfig);
+    await this.notifyListeners();
     await errorHandler.info(`Configuration section '${section}' reset to defaults`);
   }
 
@@ -263,11 +265,10 @@ export class ConfigManager {
       // 設定の検証
       this.validateConfig(importedConfig);
 
-      const oldConfig = { ...this.config };
-      this.config = this.mergeConfig(DEFAULT_CONFIG, importedConfig);
+      this.config = this.mergeConfigs(DEFAULT_CONFIG, importedConfig);
 
       await this.saveConfig();
-      await this.notifyListeners(oldConfig);
+      await this.notifyListeners();
       await errorHandler.info('Configuration imported successfully', { format });
     } catch (error) {
       await errorHandler.error('Failed to import configuration', { error, format });
@@ -276,7 +277,7 @@ export class ConfigManager {
   }
 
   // 設定の検証
-  private validateConfig(config: Partial<AppConfig>): void {
+  private validateConfig(config: Partial<AppConfig>): boolean {
     // 基本的な型チェック
     if (config.ui && typeof config.ui !== 'object') {
       throw new Error('Invalid UI configuration');
@@ -303,6 +304,8 @@ export class ConfigManager {
       (config.automation.screenshotQuality < 1 || config.automation.screenshotQuality > 100)) {
       throw new Error('Screenshot quality must be between 1 and 100');
     }
+
+    return true;
   }
 
   // イベントリスナー
@@ -315,7 +318,7 @@ export class ConfigManager {
     };
   }
 
-  private async notifyListeners(oldConfig: AppConfig): Promise<void> {
+  private async notifyListeners(): Promise<void> {
     for (const listeners of this.listeners.values()) {
       for (const listener of listeners) {
         try {
@@ -388,8 +391,12 @@ export class ConfigManager {
       const backupData = await fs.readFile(backupPath, 'utf-8');
       const backupConfig = JSON.parse(backupData);
 
-      await this.importConfig(backupData, 'json');
-      await errorHandler.info('Configuration restored from backup', { backupPath });
+      // Validate backup config structure
+      if (this.validateConfig(backupConfig)) {
+        this.config = backupConfig;
+        await this.saveConfig();
+        await errorHandler.info('Configuration restored from backup', { backupPath });
+      }
     } catch (error) {
       await errorHandler.error('Failed to restore configuration', { error, backupPath });
       throw error;

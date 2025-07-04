@@ -1,6 +1,7 @@
-import { DatabaseManager } from '../database/DatabaseManager';
-import type { TestScenario, TestReport } from '../types';
+import type { TestScenario } from '../types';
 import * as yaml from 'js-yaml';
+import { DatabaseManager } from '../database/DatabaseManager';
+
 
 interface Scenario {
   id?: number;
@@ -18,10 +19,11 @@ interface Scenario {
 }
 
 interface Folder {
-  id: number;
+  id?: number | undefined;
   name: string;
-  parent_id?: number;
-  created_at?: string;
+  parent_id?: number | undefined;
+  created_at?: string | undefined;
+  updated_at?: string | undefined;
 }
 
 interface Tag {
@@ -81,6 +83,7 @@ export class ScenarioManager {
         name TEXT NOT NULL,
         parent_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (parent_id) REFERENCES folders(id)
       )
     `);
@@ -108,7 +111,7 @@ export class ScenarioManager {
 
   async getScenarios(options: ScenarioOptions = {}): Promise<Scenario[]> {
     const { folder, tags, sortBy = 'updated_at', sortOrder = 'DESC' } = options;
-    
+
     let query = `
       SELECT s.*, GROUP_CONCAT(t.name) as tag_names
       FROM scenarios s
@@ -134,7 +137,7 @@ export class ScenarioManager {
     query += ` GROUP BY s.id ORDER BY s.${sortBy} ${sortOrder}`;
 
     const scenarios = await this.dbManager.all(query, params);
-    
+
     // Parse tags
     return scenarios.map(scenario => ({
       ...scenario,
@@ -145,20 +148,20 @@ export class ScenarioManager {
 
   async saveScenario(scenario: Omit<Scenario, 'id'>): Promise<Scenario> {
     const { name, description, folder = '/', tags = [], test_data } = scenario;
-    
+
     // Insert scenario
     const result = await this.dbManager.run(
       `INSERT INTO scenarios (name, description, folder, test_data) VALUES (?, ?, ?, ?)`,
       [name, description, folder, JSON.stringify(test_data)]
     );
-    
+
     const scenarioId = result.lastID;
-    
+
     // Handle tags
     if (tags.length > 0) {
       await this.addTagsToScenario(scenarioId, tags);
     }
-    
+
     return { id: scenarioId, ...scenario };
   }
 
@@ -166,7 +169,7 @@ export class ScenarioManager {
     const allowedFields = ['name', 'description', 'folder', 'test_data', 'last_run', 'run_count', 'last_status'];
     const setClause: string[] = [];
     const values: any[] = [];
-    
+
     for (const field of allowedFields) {
       if (updates[field as keyof ScenarioUpdate] !== undefined) {
         setClause.push(`${field} = ?`);
@@ -174,22 +177,22 @@ export class ScenarioManager {
         values.push(field === 'test_data' ? JSON.stringify(value) : value);
       }
     }
-    
+
     if (setClause.length > 0) {
       setClause.push('updated_at = CURRENT_TIMESTAMP');
       values.push(id);
-      
+
       await this.dbManager.run(
         `UPDATE scenarios SET ${setClause.join(', ')} WHERE id = ?`,
         values
       );
     }
-    
+
     // Update tags if provided
     if (updates.tags) {
       await this.updateScenarioTags(id, updates.tags);
     }
-    
+
     return await this.getScenario(id);
   }
 
@@ -200,7 +203,7 @@ export class ScenarioManager {
 
   async searchScenarios(query: string): Promise<Scenario[]> {
     const searchQuery = `%${query}%`;
-    
+
     const scenarios = await this.dbManager.all(
       `SELECT s.*, GROUP_CONCAT(t.name) as tag_names
        FROM scenarios s
@@ -211,7 +214,7 @@ export class ScenarioManager {
        ORDER BY s.updated_at DESC`,
       [searchQuery, searchQuery, searchQuery]
     );
-    
+
     return scenarios.map(scenario => ({
       ...scenario,
       tags: scenario.tag_names ? scenario.tag_names.split(',') : [],
@@ -229,9 +232,9 @@ export class ScenarioManager {
        GROUP BY s.id`,
       [id]
     );
-    
+
     if (!scenario) return null;
-    
+
     return {
       ...scenario,
       tags: scenario.tag_names ? scenario.tag_names.split(',') : [],
@@ -244,8 +247,8 @@ export class ScenarioManager {
       'INSERT INTO folders (name, parent_id) VALUES (?, ?)',
       [name, parentId || null]
     );
-    
-    return { id: result.lastID, name, parent_id: parentId || undefined };
+
+    return { id: result.lastID, name, parent_id: parentId || undefined, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   }
 
   async getFolders(): Promise<Folder[]> {
@@ -255,10 +258,10 @@ export class ScenarioManager {
   async deleteFolder(id: number): Promise<{ success: boolean }> {
     // Move scenarios to root folder
     await this.dbManager.run('UPDATE scenarios SET folder = "/" WHERE folder = (SELECT name FROM folders WHERE id = ?)', [id]);
-    
+
     // Delete folder
     await this.dbManager.run('DELETE FROM folders WHERE id = ?', [id]);
-    
+
     return { success: true };
   }
 
@@ -267,7 +270,7 @@ export class ScenarioManager {
       'INSERT INTO tags (name, color) VALUES (?, ?)',
       [name, color]
     );
-    
+
     return { id: result.lastID, name, color };
   }
 
@@ -279,12 +282,12 @@ export class ScenarioManager {
     for (const tagName of tagNames) {
       // Get or create tag
       let tag = await this.dbManager.get('SELECT * FROM tags WHERE name = ?', [tagName]);
-      
+
       if (!tag) {
         const result = await this.dbManager.run('INSERT INTO tags (name) VALUES (?)', [tagName]);
         tag = { id: result.lastID, name: tagName, color: '#3B82F6' };
       }
-      
+
       // Add tag to scenario
       await this.dbManager.run(
         'INSERT OR IGNORE INTO scenario_tags (scenario_id, tag_id) VALUES (?, ?)',
@@ -296,7 +299,7 @@ export class ScenarioManager {
   private async updateScenarioTags(scenarioId: number, tagNames: string[]): Promise<void> {
     // Remove existing tags
     await this.dbManager.run('DELETE FROM scenario_tags WHERE scenario_id = ?', [scenarioId]);
-    
+
     // Add new tags
     if (tagNames.length > 0) {
       await this.addTagsToScenario(scenarioId, tagNames);
@@ -307,9 +310,9 @@ export class ScenarioManager {
     const scenarios = await Promise.all(
       scenarioIds.map(id => this.getScenario(id))
     );
-    
+
     const validScenarios = scenarios.filter(s => s !== null) as Scenario[];
-    
+
     if (format === 'yaml') {
       return yaml.dump(validScenarios);
     } else {
@@ -319,21 +322,21 @@ export class ScenarioManager {
 
   async importScenarios(data: string, format: 'yaml' | 'json' = 'yaml'): Promise<Scenario[]> {
     let scenarios: Scenario[];
-    
+
     if (format === 'yaml') {
       scenarios = yaml.load(data) as Scenario[];
     } else {
       scenarios = JSON.parse(data) as Scenario[];
     }
-    
+
     const importedScenarios: Scenario[] = [];
-    
+
     for (const scenario of scenarios) {
       const { id, ...scenarioData } = scenario;
       const savedScenario = await this.saveScenario(scenarioData);
       importedScenarios.push(savedScenario);
     }
-    
+
     return importedScenarios;
   }
 
@@ -343,7 +346,7 @@ export class ScenarioManager {
       last_run: new Date().toISOString(),
       run_count: 1 // This should be incremented, but simplified for now
     };
-    
+
     await this.updateScenario(id, updates);
   }
 
@@ -354,14 +357,14 @@ export class ScenarioManager {
     notRun: number;
   }> {
     const scenarios = await this.getScenarios();
-    
+
     const stats = {
       total: scenarios.length,
       passed: scenarios.filter(s => s.last_status === 'passed').length,
       failed: scenarios.filter(s => s.last_status === 'failed').length,
       notRun: scenarios.filter(s => !s.last_status).length
     };
-    
+
     return stats;
   }
 } 
