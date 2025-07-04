@@ -39,7 +39,7 @@ export class AssertionEngine {
     this.register('visible', async (element: any, expected: boolean = true) => {
       const props = await this.automationClient.getElementProperties(element);
       const isVisible = props && !props.isOffscreen && props.bounds.width > 0 && props.bounds.height > 0;
-      
+
       return {
         passed: isVisible === expected,
         actual: isVisible,
@@ -52,7 +52,7 @@ export class AssertionEngine {
     this.register('text', async (element: any, expected: string) => {
       const actual = await this.automationClient.getText(element);
       const passed = actual === expected;
-      
+
       return {
         passed,
         actual,
@@ -64,7 +64,7 @@ export class AssertionEngine {
     this.register('contains-text', async (element: any, expected: string) => {
       const actual = await this.automationClient.getText(element);
       const passed = actual && actual.includes(expected);
-      
+
       return {
         passed,
         actual,
@@ -77,7 +77,7 @@ export class AssertionEngine {
     this.register('enabled', async (element: any, expected: boolean = true) => {
       const props = await this.automationClient.getElementProperties(element);
       const isEnabled = props && props.isEnabled;
-      
+
       return {
         passed: isEnabled === expected,
         actual: isEnabled,
@@ -94,9 +94,9 @@ export class AssertionEngine {
           message: 'Element is not a checkbox or radio button'
         };
       }
-      
+
       const isChecked = await this.automationClient.isChecked(element);
-      
+
       return {
         passed: isChecked === expected,
         actual: isChecked,
@@ -109,7 +109,7 @@ export class AssertionEngine {
     this.register('value', async (element: any, expected: string) => {
       const actual = await this.automationClient.getValue(element);
       const passed = actual === expected;
-      
+
       return {
         passed,
         actual,
@@ -123,7 +123,7 @@ export class AssertionEngine {
       const props = await this.automationClient.getElementProperties(element);
       const actual = props[params.name];
       const passed = actual === params.value;
-      
+
       return {
         passed,
         actual,
@@ -137,7 +137,7 @@ export class AssertionEngine {
       const elements = await this.automationClient.findElements(selector);
       const actual = elements.length;
       const passed = actual === expected;
-      
+
       return {
         passed,
         actual,
@@ -149,7 +149,7 @@ export class AssertionEngine {
     // Focus assertions
     this.register('focused', async (element: any, expected: boolean = true) => {
       const hasFocus = await this.automationClient.hasFocus(element);
-      
+
       return {
         passed: hasFocus === expected,
         actual: hasFocus,
@@ -162,7 +162,7 @@ export class AssertionEngine {
     this.register('matches-snapshot', async (element: any, snapshotName: string) => {
       const screenshot = await this.automationClient.screenshot(element);
       const snapshot = await this.loadSnapshot(snapshotName);
-      
+
       if (!snapshot) {
         await this.saveSnapshot(snapshotName, screenshot);
         return {
@@ -170,9 +170,9 @@ export class AssertionEngine {
           message: 'Snapshot created'
         };
       }
-      
+
       const passed = await this.compareImages(screenshot, snapshot);
-      
+
       return {
         passed,
         actual: screenshot,
@@ -188,7 +188,7 @@ export class AssertionEngine {
 
   async runAssertion(assertion: Assertion, element: any): Promise<AssertionResult> {
     const { type, ...params } = assertion;
-    
+
     if (!this.assertions.has(type)) {
       return {
         type,
@@ -197,11 +197,11 @@ export class AssertionEngine {
         timestamp: Date.now()
       };
     }
-    
+
     try {
       const handler = this.assertions.get(type)!;
       const result = await handler(element, params.expected || params);
-      
+
       return {
         type,
         ...result,
@@ -220,28 +220,28 @@ export class AssertionEngine {
 
   async runMultipleAssertions(assertions: Assertion[], element: any): Promise<AssertionResult[]> {
     const results: AssertionResult[] = [];
-    
+
     for (const assertion of assertions) {
       const result = await this.runAssertion(assertion, element);
       results.push(result);
-      
+
       if (!result.passed && (assertion as any).stopOnFailure) {
         break;
       }
     }
-    
+
     return results;
   }
 
   async takeSnapshot(element?: any): Promise<Snapshot> {
     try {
       await fs.ensureDir(this.snapshotsDir);
-      
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const name = `snapshot_${timestamp}`;
       const filename = `${name}.png`;
       const filepath = path.join(this.snapshotsDir, filename);
-      
+
       let screenshot: string;
       if (element) {
         screenshot = await this.automationClient.screenshot(element);
@@ -249,10 +249,10 @@ export class AssertionEngine {
         // Take full screen screenshot
         screenshot = await this.automationClient.screenshot({ handle: 0 });
       }
-      
+
       // Copy screenshot to snapshots directory
       await fs.copyFile(screenshot, filepath);
-      
+
       const snapshot: Snapshot = {
         id: Date.now(),
         name,
@@ -260,7 +260,7 @@ export class AssertionEngine {
         timestamp: new Date().toISOString(),
         description: `Auto-generated snapshot for ${element ? 'element' : 'screen'}`
       };
-      
+
       return snapshot;
     } catch (error) {
       throw new Error(`Failed to take snapshot: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -271,11 +271,11 @@ export class AssertionEngine {
     try {
       const filepath = path.join(this.snapshotsDir, `${name}.png`);
       const exists = await fs.pathExists(filepath);
-      
+
       if (exists) {
         return filepath;
       }
-      
+
       return null;
     } catch (error) {
       console.error('Error loading snapshot:', error);
@@ -294,12 +294,53 @@ export class AssertionEngine {
   }
 
   async compareImages(image1: string, image2: string): Promise<boolean> {
-    // Simple file comparison - can be enhanced with image processing
     try {
+      // 基本的なファイル比較
       const buffer1 = await fs.readFile(image1);
       const buffer2 = await fs.readFile(image2);
-      
-      return buffer1.equals(buffer2);
+
+      // 完全一致の場合はtrue
+      if (buffer1.equals(buffer2)) {
+        return true;
+      }
+
+      // 画像処理ライブラリを使用した詳細比較（オプション）
+      try {
+        const sharp = require('sharp');
+
+        const img1 = sharp(image1);
+        const img2 = sharp(image2);
+
+        const metadata1 = await img1.metadata();
+        const metadata2 = await img2.metadata();
+
+        // サイズが異なる場合はfalse
+        if (metadata1.width !== metadata2.width || metadata1.height !== metadata2.height) {
+          return false;
+        }
+
+        // ピクセル比較（簡易版）
+        const diff = await sharp(image1)
+          .composite([{
+            input: image2,
+            blend: 'difference'
+          }])
+          .raw()
+          .toBuffer();
+
+        // 差分が閾値以下かチェック
+        const threshold = 0.1; // 10%の差分を許容
+        const totalPixels = metadata1.width * metadata1.height * 3; // RGB
+        const diffPixels = diff.reduce((sum, val) => sum + (val > 0 ? 1 : 0), 0);
+
+        return (diffPixels / totalPixels) < threshold;
+
+      } catch (sharpError) {
+        // sharpが利用できない場合は基本的な比較のみ
+        console.warn('Sharp library not available, using basic comparison');
+        return false;
+      }
+
     } catch (error) {
       console.error('Error comparing images:', error);
       return false;
@@ -311,43 +352,43 @@ export class AssertionEngine {
       async toBeVisible(): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'visible', expected: true }, element);
       },
-      
+
       async toBeHidden(): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'visible', expected: false }, element);
       },
-      
+
       async toHaveText(text: string): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'text', expected: text }, element);
       },
-      
+
       async toContainText(text: string): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'contains-text', expected: text }, element);
       },
-      
+
       async toBeEnabled(): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'enabled', expected: true }, element);
       },
-      
+
       async toBeDisabled(): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'enabled', expected: false }, element);
       },
-      
+
       async toBeChecked(): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'checked', expected: true }, element);
       },
-      
+
       async toHaveValue(value: string): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'value', expected: value }, element);
       },
-      
+
       async toHaveAttribute(name: string, value: string): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'attribute', name, value }, element);
       },
-      
+
       async toBeFocused(): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'focused', expected: true }, element);
       },
-      
+
       async toMatchSnapshot(name: string): Promise<AssertionResult> {
         return await this.runAssertion({ type: 'matches-snapshot', expected: name }, element);
       }

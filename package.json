@@ -49,7 +49,8 @@
     "fs-extra": "^11.1.1",
     "js-yaml": "^4.1.0",
     "xml2js": "^0.6.2",
-    "robotjs": "^0.6.0"
+    "robotjs": "^0.6.0",
+    "sharp": "^0.33.0"
   },
   "build": {
     "appId": "com.yourcompany.windows-ui-automation-test-tool",

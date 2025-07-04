@@ -1,6 +1,7 @@
 import * as sqlite3 from 'sqlite3';
 import * as path from 'path';
 import type { TestReport } from '../types';
+import { errorHandler } from '../utils/ErrorHandler';
 
 interface DatabaseResult {
   lastID: number;
@@ -48,110 +49,143 @@ export class DatabaseManager {
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
-    this.initializeDatabase();
-  }
-
-  private initializeDatabase(): void {
-    this.db = new sqlite3.Database(this.dbPath, (err) => {
-      if (err) {
-        console.error('Error opening database:', err);
-      } else {
-        console.log('Connected to SQLite database');
-        this.createTables();
-      }
+    this.initializeDatabase().catch(error => {
+      errorHandler.error('Database initialization failed', { error });
     });
   }
 
-  private createTables(): void {
-    // Tests table (legacy - for backward compatibility)
-    this.run(`
-      CREATE TABLE IF NOT EXISTS tests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        description TEXT,
-        test_data TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+  private async initializeDatabase(): Promise<void> {
+    try {
+      this.db = new sqlite3.Database(this.dbPath, async (err) => {
+        if (err) {
+          await errorHandler.error('Error opening database', { error: err, dbPath: this.dbPath });
+          throw err;
+        } else {
+          await errorHandler.info('Connected to SQLite database', { dbPath: this.dbPath });
+          await this.createTables();
+        }
+      });
+    } catch (error) {
+      await errorHandler.error('Failed to initialize database', { error, dbPath: this.dbPath });
+      throw error;
+    }
+  }
 
-    // Test results table
-    this.run(`
-      CREATE TABLE IF NOT EXISTS test_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        test_id INTEGER,
-        scenario_id INTEGER,
-        status TEXT NOT NULL,
-        start_time DATETIME,
-        end_time DATETIME,
-        duration INTEGER,
-        error_message TEXT,
-        report TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (test_id) REFERENCES tests(id),
-        FOREIGN KEY (scenario_id) REFERENCES scenarios(id)
-      )
-    `);
+  private async createTables(): Promise<void> {
+    try {
+      // Tests table (legacy - for backward compatibility)
+      await this.run(`
+        CREATE TABLE IF NOT EXISTS tests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT,
+          test_data TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
 
-    // Settings table
-    this.run(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+      // Test results table
+      await this.run(`
+        CREATE TABLE IF NOT EXISTS test_results (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          test_id INTEGER,
+          scenario_id INTEGER,
+          status TEXT NOT NULL,
+          start_time DATETIME,
+          end_time DATETIME,
+          duration INTEGER,
+          error_message TEXT,
+          report TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (test_id) REFERENCES tests(id),
+          FOREIGN KEY (scenario_id) REFERENCES scenarios(id)
+        )
+      `);
+
+      // Settings table
+      await this.run(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await errorHandler.info('Database tables created successfully');
+    } catch (error) {
+      await errorHandler.error('Failed to create database tables', { error });
+      throw error;
+    }
   }
 
   // Promisified database methods
-  run(sql: string, params: any[] = []): Promise<DatabaseResult> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('Database not initialized'));
-        return;
-      }
-
-      this.db.run(sql, params, function(err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve({ lastID: this.lastID, changes: this.changes });
+  async run(sql: string, params: any[] = []): Promise<DatabaseResult> {
+    return await errorHandler.retry(async () => {
+      return new Promise((resolve, reject) => {
+        if (!this.db) {
+          reject(new Error('Database not initialized'));
+          return;
         }
+
+        this.db!.run(sql, params, function (err) {
+          if (err) {
+            reject(err);
+          } else {
+            resolve({ lastID: this.lastID, changes: this.changes });
+          }
+        });
       });
+    }, {
+      maxAttempts: 3,
+      delay: 1000,
+      timeout: 30000
     });
   }
 
-  get(sql: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('Database not initialized'));
-        return;
-      }
-
-      this.db.get(sql, params, (err, row) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(row);
+  async get(sql: string, params: any[] = []): Promise<any> {
+    return await errorHandler.retry(async () => {
+      return new Promise((resolve, reject) => {
+        if (!this.db) {
+          reject(new Error('Database not initialized'));
+          return;
         }
+
+        this.db!.get(sql, params, (err, row) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(row);
+          }
+        });
       });
+    }, {
+      maxAttempts: 3,
+      delay: 1000,
+      timeout: 30000
     });
   }
 
-  all(sql: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error('Database not initialized'));
-        return;
-      }
-
-      this.db.all(sql, params, (err, rows) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(rows);
+  async all(sql: string, params: any[] = []): Promise<any[]> {
+    return await errorHandler.retry(async () => {
+      return new Promise((resolve, reject) => {
+        if (!this.db) {
+          reject(new Error('Database not initialized'));
+          return;
         }
+
+        this.db!.all(sql, params, (err, rows) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(rows);
+          }
+        });
       });
+    }, {
+      maxAttempts: 3,
+      delay: 1000,
+      timeout: 30000
     });
   }
 
@@ -209,15 +243,15 @@ export class DatabaseManager {
   async getTestResults(testId?: number, limit: number = 50): Promise<TestResult[]> {
     let query = 'SELECT * FROM test_results';
     const params: any[] = [];
-    
+
     if (testId) {
       query += ' WHERE test_id = ? OR scenario_id = ?';
       params.push(testId, testId);
     }
-    
+
     query += ' ORDER BY created_at DESC LIMIT ?';
     params.push(limit);
-    
+
     const results = await this.all(query, params);
     return results.map(result => ({
       ...result,
@@ -276,7 +310,7 @@ export class DatabaseManager {
 
     return new Promise((resolve, reject) => {
       const backupDb = new sqlite3.Database(backupPath);
-      
+
       this.db!.backup(backupDb, (err) => {
         if (err) {
           reject(err);

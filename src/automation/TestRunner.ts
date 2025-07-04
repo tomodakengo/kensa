@@ -56,13 +56,13 @@ export class TestRunner {
   async runTest(testData: TestScenario | string): Promise<{ results: TestExecutionResult; report?: any }> {
     try {
       this.isRunning = true;
-      
+
       // Parse test data if it's YAML string
       const test = typeof testData === 'string' ? yaml.load(testData) as TestScenario : testData;
-      
+
       this.currentTest = test;
       this.executionLog = [];
-      
+
       const startTime = Date.now();
       const results: TestExecutionResult = {
         testName: test.name,
@@ -70,28 +70,28 @@ export class TestRunner {
         startTime: startTime,
         steps: []
       };
-      
+
       // Execute each step
       for (const step of test.steps) {
         const stepResult = await this.executeStep(step);
         results.steps.push(stepResult);
-        
+
         if (stepResult.status === 'failed') {
           results.status = 'failed';
           break;
         }
       }
-      
+
       if (results.status === 'running') {
         results.status = 'passed';
       }
-      
+
       results.endTime = Date.now();
       results.duration = results.endTime - startTime;
-      
+
       // Generate report
       const report = await this.reporter.generateReport(results);
-      
+
       return {
         results,
         report
@@ -121,7 +121,7 @@ export class TestRunner {
       status: 'running',
       startTime: Date.now()
     };
-    
+
     try {
       // Find element if needed
       let element: any = null;
@@ -131,14 +131,14 @@ export class TestRunner {
           throw new Error(`Element not found: ${step.locator}`);
         }
       }
-      
+
       // Execute action
       switch (step.action) {
         case 'click':
           await this.automationClient.click(element);
           stepResult.description = `Clicked on element`;
           break;
-          
+
         case 'type':
         case 'fill':
           if (step.value) {
@@ -146,72 +146,72 @@ export class TestRunner {
             stepResult.description = `Typed "${step.value}" into element`;
           }
           break;
-          
+
         case 'clear':
           await this.automationClient.clear(element);
           stepResult.description = `Cleared element`;
           break;
-          
+
         case 'hover':
           await this.automationClient.hover(element);
           stepResult.description = `Hovered over element`;
           break;
-          
+
         case 'doubleClick':
           await this.automationClient.doubleClick(element);
           stepResult.description = `Double-clicked element`;
           break;
-          
+
         case 'rightClick':
           await this.automationClient.rightClick(element);
           stepResult.description = `Right-clicked element`;
           break;
-          
+
         case 'selectOption':
           if (step.value) {
             await this.automationClient.selectOption(element, step.value);
             stepResult.description = `Selected option "${step.value}"`;
           }
           break;
-          
+
         case 'check':
           await this.automationClient.check(element);
           stepResult.description = `Checked checkbox`;
           break;
-          
+
         case 'uncheck':
           await this.automationClient.uncheck(element);
           stepResult.description = `Unchecked checkbox`;
           break;
-          
+
         case 'keypress':
           if (step.value) {
             await this.simulateKeyPress(step.value);
             stepResult.description = `Pressed key "${step.value}"`;
           }
           break;
-          
+
         case 'wait':
           const duration = step.value ? parseInt(step.value) : 1000;
           await this.wait(duration);
           stepResult.description = `Waited ${duration}ms`;
           break;
-          
+
         case 'waitForSelector':
           const timeout = step.value ? parseInt(step.value) : 30000;
           element = await this.automationClient.waitForSelector(
-            step.locator || '', 
+            step.locator || '',
             { timeout }
           );
           stepResult.description = `Waited for element to appear`;
           break;
-          
+
         case 'screenshot':
           const screenshot = await this.automationClient.screenshot(element || { handle: 0 });
           stepResult.screenshot = screenshot;
           stepResult.description = `Took screenshot`;
           break;
-          
+
         case 'assert':
           if (step.value) {
             const assertion: Assertion = JSON.parse(step.value);
@@ -222,18 +222,18 @@ export class TestRunner {
             stepResult.description = `Assertion passed: ${assertion.type}`;
           }
           break;
-          
+
         default:
           throw new Error(`Unknown action: ${step.action}`);
       }
-      
+
       stepResult.status = 'passed';
-      
+
     } catch (error) {
       stepResult.status = 'failed';
       stepResult.error = error instanceof Error ? error.message : 'Unknown error';
       stepResult.stack = error instanceof Error ? error.stack : undefined;
-      
+
       // Take screenshot on failure
       try {
         const screenshot = await this.automationClient.screenshot({ handle: 0 });
@@ -242,10 +242,10 @@ export class TestRunner {
         // Ignore screenshot errors
       }
     }
-    
+
     stepResult.endTime = Date.now();
     stepResult.duration = stepResult.endTime - stepResult.startTime;
-    
+
     this.executionLog.push(stepResult);
     return stepResult;
   }
@@ -253,11 +253,11 @@ export class TestRunner {
   async findElementBySelector(selector: string): Promise<any> {
     // Parse selector string
     const selectors = this.parseSelector(selector);
-    
+
     // Try selectors in priority order
     for (const sel of selectors) {
       const criteria: any = {};
-      
+
       switch (sel.type) {
         case 'automationId':
           criteria.automationId = sel.value;
@@ -275,19 +275,19 @@ export class TestRunner {
           // XPath handling would need special implementation
           continue;
       }
-      
+
       const element = await this.automationClient.findElement(criteria);
       if (element) {
         return element;
       }
     }
-    
+
     return null;
   }
 
   private parseSelector(selector: string): ElementSelector[] {
     const selectors: ElementSelector[] = [];
-    
+
     // Simple selector parsing - can be enhanced
     if (selector.includes('automationId=')) {
       const match = selector.match(/automationId="([^"]+)"/);
@@ -299,7 +299,7 @@ export class TestRunner {
         });
       }
     }
-    
+
     if (selector.includes('name=')) {
       const match = selector.match(/name="([^"]+)"/);
       if (match) {
@@ -310,7 +310,7 @@ export class TestRunner {
         });
       }
     }
-    
+
     if (selector.includes('className=')) {
       const match = selector.match(/className="([^"]+)"/);
       if (match) {
@@ -321,7 +321,7 @@ export class TestRunner {
         });
       }
     }
-    
+
     if (selector.includes('controlType=')) {
       const match = selector.match(/controlType="([^"]+)"/);
       if (match) {
@@ -332,18 +332,51 @@ export class TestRunner {
         });
       }
     }
-    
+
     return selectors.sort((a, b) => a.priority - b.priority);
   }
 
   async simulateKeyPress(key: string): Promise<void> {
-    // Implement key simulation using robotjs or similar
-    // This is a placeholder implementation
-    console.log(`Simulating key press: ${key}`);
-    
-    // Example implementation with robotjs
-    // const robot = require('robotjs');
-    // robot.keyTap(key.toLowerCase());
+    try {
+      // robotjsを使用したキー入力シミュレーション
+      const robot = require('robotjs');
+
+      // 特殊キーの処理
+      const specialKeys: { [key: string]: string } = {
+        'Enter': 'enter',
+        'Tab': 'tab',
+        'Escape': 'escape',
+        'Backspace': 'backspace',
+        'Delete': 'delete',
+        'Home': 'home',
+        'End': 'end',
+        'PageUp': 'pageup',
+        'PageDown': 'pagedown',
+        'ArrowUp': 'up',
+        'ArrowDown': 'down',
+        'ArrowLeft': 'left',
+        'ArrowRight': 'right',
+        'F1': 'f1',
+        'F2': 'f2',
+        'F3': 'f3',
+        'F4': 'f4',
+        'F5': 'f5',
+        'F6': 'f6',
+        'F7': 'f7',
+        'F8': 'f8',
+        'F9': 'f9',
+        'F10': 'f10',
+        'F11': 'f11',
+        'F12': 'f12'
+      };
+
+      const robotKey = specialKeys[key] || key.toLowerCase();
+      robot.keyTap(robotKey);
+
+    } catch (error) {
+      console.error(`Failed to simulate key press: ${key}`, error);
+      throw new Error(`Key simulation failed: ${key}`);
+    }
   }
 
   async wait(duration: number): Promise<void> {

@@ -9,6 +9,8 @@ import { ScenarioManager } from './managers/ScenarioManager';
 import { LocatorManager } from './managers/LocatorManager';
 import { TestReporter } from './automation/TestReporter';
 import { AssertionEngine } from './automation/AssertionEngine';
+import { errorHandler } from './utils/ErrorHandler';
+import { configManager } from './utils/ConfigManager';
 import type {
   TestScenario,
   TestResult,
@@ -36,30 +38,52 @@ class MainProcess {
     this.setupEventHandlers();
   }
 
-  private initializeComponents(): void {
-    // 設定の初期化
-    this.settings = this.loadSettings();
+  private async initializeComponents(): Promise<void> {
+    try {
+      await errorHandler.info('Initializing application components');
 
-    // データベースの初期化
-    this.databaseManager = new DatabaseManager(this.settings.databasePath);
+      // 設定の初期化
+      this.settings = this.loadSettings();
 
-    // マネージャーの初期化
-    this.scenarioManager = new ScenarioManager(this.databaseManager);
-    this.locatorManager = new LocatorManager('./locators');
+      // 設定の検証
+      const configValidation = await configManager.validateCurrentConfig();
+      if (!configValidation.valid) {
+        await errorHandler.warn('Configuration validation failed', { errors: configValidation.errors });
+      }
 
-    // 自動化コンポーネントの初期化
-    this.uiClient = new UIAutomationClient();
-    this.assertionEngine = new AssertionEngine(this.uiClient);
-    this.testRecorder = new TestRecorder(this.uiClient);
-    this.testRunner = new TestRunner(this.uiClient, this.assertionEngine);
-    this.testReporter = new TestReporter({ outputDir: this.settings.reportPath });
+      // データベースの初期化
+      this.databaseManager = new DatabaseManager(this.settings.databasePath);
+
+      // マネージャーの初期化
+      this.scenarioManager = new ScenarioManager(this.databaseManager);
+      this.locatorManager = new LocatorManager('./locators');
+
+      // 自動化コンポーネントの初期化
+      this.uiClient = new UIAutomationClient();
+      this.assertionEngine = new AssertionEngine(this.uiClient);
+      this.testRecorder = new TestRecorder(this.uiClient);
+      this.testRunner = new TestRunner(this.uiClient, this.assertionEngine);
+      this.testReporter = new TestReporter({ outputDir: this.settings.reportPath });
+
+      await errorHandler.info('Application components initialized successfully');
+    } catch (error) {
+      await errorHandler.error('Failed to initialize application components', { error });
+      throw error;
+    }
   }
 
   private setupEventHandlers(): void {
     // アプリケーションイベント
-    app.whenReady().then(() => {
-      this.createWindow();
-      this.setupIpcHandlers();
+    app.whenReady().then(async () => {
+      try {
+        await this.initializeComponents();
+        this.createWindow();
+        this.setupIpcHandlers();
+        await errorHandler.info('Application started successfully');
+      } catch (error) {
+        await errorHandler.error('Failed to start application', { error });
+        app.quit();
+      }
     });
 
     app.on('window-all-closed', () => {

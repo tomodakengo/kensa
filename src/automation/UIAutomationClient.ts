@@ -58,8 +58,16 @@ export class UIAutomationClient {
                 return GetWindowList();
               case "findElement":
                 return FindElement(input.criteria);
+              case "findElements":
+                return FindElements(input.criteria);
               case "click":
                 return ClickElement(input.element);
+              case "doubleClick":
+                return DoubleClickElement(input.element);
+              case "rightClick":
+                return RightClickElement(input.element);
+              case "moveMouse":
+                return MoveMouse(input.x, input.y);
               case "setText":
                 return SetText(input.element, input.text);
               case "getText":
@@ -72,6 +80,18 @@ export class UIAutomationClient {
                 return TakeScreenshot(input.element);
               case "waitForElement":
                 return WaitForElement(input.criteria, input.timeout);
+              case "selectOption":
+                return SelectOption(input.element, input.value);
+              case "check":
+                return CheckElement(input.element);
+              case "uncheck":
+                return UncheckElement(input.element);
+              case "isChecked":
+                return IsElementChecked(input.element);
+              case "getValue":
+                return GetValue(input.element);
+              case "hasFocus":
+                return HasFocus(input.element);
               default:
                 throw new Exception($"Unknown method: {method}");
             }
@@ -278,6 +298,169 @@ export class UIAutomationClient {
             }
           }
 
+          private object FindElements(dynamic criteria) {
+            var conditions = new List<Condition>();
+            
+            if(criteria.automationId != null)
+              conditions.Add(new PropertyCondition(AutomationElement.AutomationIdProperty, (string)criteria.automationId));
+            if(criteria.name != null)
+              conditions.Add(new PropertyCondition(AutomationElement.NameProperty, (string)criteria.name));
+            if(criteria.className != null)
+              conditions.Add(new PropertyCondition(AutomationElement.ClassNameProperty, (string)criteria.className));
+            if(criteria.controlType != null)
+              conditions.Add(new PropertyCondition(AutomationElement.ControlTypeProperty, GetControlType((string)criteria.controlType)));
+            
+            Condition finalCondition = conditions.Count == 1 ? conditions[0] : new AndCondition(conditions.ToArray());
+            
+            AutomationElement root = criteria.parentHandle != null ? 
+              AutomationElement.FromHandle(new IntPtr((long)criteria.parentHandle)) : 
+              AutomationElement.RootElement;
+              
+            var elements = root.FindAll(TreeScope.Descendants, finalCondition);
+            var result = new List<object>();
+            
+            foreach(AutomationElement element in elements) {
+              result.Add(new {
+                handle = element.Current.NativeWindowHandle,
+                automationId = element.Current.AutomationId,
+                name = element.Current.Name,
+                className = element.Current.ClassName,
+                bounds = new {
+                  x = element.Current.BoundingRectangle.X,
+                  y = element.Current.BoundingRectangle.Y,
+                  width = element.Current.BoundingRectangle.Width,
+                  height = element.Current.BoundingRectangle.Height
+                }
+              });
+            }
+            
+            return result;
+          }
+
+          private bool DoubleClickElement(dynamic element) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            var bounds = ae.Current.BoundingRectangle;
+            var centerX = bounds.X + bounds.Width / 2;
+            var centerY = bounds.Y + bounds.Height / 2;
+            
+            SetCursorPos((int)centerX, (int)centerY);
+            mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+            System.Threading.Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+            return true;
+          }
+
+          private bool RightClickElement(dynamic element) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            var bounds = ae.Current.BoundingRectangle;
+            var centerX = bounds.X + bounds.Width / 2;
+            var centerY = bounds.Y + bounds.Height / 2;
+            
+            SetCursorPos((int)centerX, (int)centerY);
+            mouse_event(MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+            return true;
+          }
+
+          private bool MoveMouse(int x, int y) {
+            SetCursorPos(x, y);
+            return true;
+          }
+
+          private bool SelectOption(dynamic element, string value) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            
+            object pattern;
+            if(ae.TryGetCurrentPattern(SelectionPattern.Pattern, out pattern)) {
+              var selectionPattern = (SelectionPattern)pattern;
+              var items = selectionPattern.Current.GetSelection();
+              
+              foreach(AutomationElement item in items) {
+                if(item.Current.Name == value) {
+                  object invokePattern;
+                  if(item.TryGetCurrentPattern(InvokePattern.Pattern, out invokePattern)) {
+                    ((InvokePattern)invokePattern).Invoke();
+                    return true;
+                  }
+                }
+              }
+            }
+            else if(ae.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
+              ((ValuePattern)pattern).SetValue(value);
+              return true;
+            }
+            
+            return false;
+          }
+
+          private bool CheckElement(dynamic element) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            
+            object pattern;
+            if(ae.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) {
+              var togglePattern = (TogglePattern)pattern;
+              if(togglePattern.Current.ToggleState == ToggleState.Off) {
+                togglePattern.Toggle();
+                return true;
+              }
+            }
+            
+            return false;
+          }
+
+          private bool UncheckElement(dynamic element) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            
+            object pattern;
+            if(ae.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) {
+              var togglePattern = (TogglePattern)pattern;
+              if(togglePattern.Current.ToggleState == ToggleState.On) {
+                togglePattern.Toggle();
+                return true;
+              }
+            }
+            
+            return false;
+          }
+
+          private bool IsElementChecked(dynamic element) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            
+            object pattern;
+            if(ae.TryGetCurrentPattern(TogglePattern.Pattern, out pattern)) {
+              var togglePattern = (TogglePattern)pattern;
+              return togglePattern.Current.ToggleState == ToggleState.On;
+            }
+            
+            return false;
+          }
+
+          private string GetValue(dynamic element) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            
+            object pattern;
+            if(ae.TryGetCurrentPattern(ValuePattern.Pattern, out pattern)) {
+              return ((ValuePattern)pattern).Current.Value;
+            }
+            else if(ae.TryGetCurrentPattern(RangeValuePattern.Pattern, out pattern)) {
+              return ((RangeValuePattern)pattern).Current.Value.ToString();
+            }
+            else if(ae.TryGetCurrentPattern(SelectionPattern.Pattern, out pattern)) {
+              var selectionPattern = (SelectionPattern)pattern;
+              var items = selectionPattern.Current.GetSelection();
+              if(items.Length > 0) {
+                return items[0].Current.Name;
+              }
+            }
+            
+            return ae.Current.Name;
+          }
+
+          private bool HasFocus(dynamic element) {
+            var ae = AutomationElement.FromHandle(new IntPtr((long)element.handle));
+            var focusedElement = AutomationElement.FocusedElement;
+            return focusedElement != null && focusedElement.Current.NativeWindowHandle == ae.Current.NativeWindowHandle;
+          }
+
           [DllImport("user32.dll")]
           static extern bool SetCursorPos(int x, int y);
 
@@ -286,6 +469,8 @@ export class UIAutomationClient {
 
           const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
           const uint MOUSEEVENTF_LEFTUP = 0x0004;
+          const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+          const uint MOUSEEVENTF_RIGHTUP = 0x0010;
         }
       `
     });
@@ -338,92 +523,53 @@ export class UIAutomationClient {
   }
 
   async hover(element: ElementHandle): Promise<boolean> {
-    // マウスホバーの実装（簡易版）
     const properties = await this.getElementProperties(element);
     if (properties.bounds) {
       const centerX = properties.bounds.x + properties.bounds.width / 2;
       const centerY = properties.bounds.y + properties.bounds.height / 2;
-      
-      // マウス移動の実装が必要
-      return true;
+
+      return await this.automationCore({ method: 'moveMouse', x: centerX, y: centerY });
     }
     return false;
+  }
+
+  async moveMouse(x: number, y: number): Promise<boolean> {
+    return await this.automationCore({ method: 'moveMouse', x, y });
   }
 
   async doubleClick(element: ElementHandle): Promise<boolean> {
-    // ダブルクリックの実装（簡易版）
-    await this.click(element);
-    await new Promise(resolve => setTimeout(resolve, 50));
-    return await this.click(element);
+    return await this.automationCore({ method: 'doubleClick', element });
   }
 
   async rightClick(element: ElementHandle): Promise<boolean> {
-    // 右クリックの実装（簡易版）
-    const properties = await this.getElementProperties(element);
-    if (properties.bounds) {
-      const centerX = properties.bounds.x + properties.bounds.width / 2;
-      const centerY = properties.bounds.y + properties.bounds.height / 2;
-      
-      // 右クリックの実装が必要
-      return true;
-    }
-    return false;
+    return await this.automationCore({ method: 'rightClick', element });
   }
 
   async selectOption(element: ElementHandle, value: string): Promise<boolean> {
-    // オプション選択の実装（簡易版）
-    const properties = await this.getElementProperties(element);
-    if (properties.controlType === 'ComboBox') {
-      // コンボボックスの選択実装が必要
-      return true;
-    }
-    return false;
+    return await this.automationCore({ method: 'selectOption', element, value });
   }
 
   async check(element: ElementHandle): Promise<boolean> {
-    // チェックボックス選択の実装（簡易版）
-    const properties = await this.getElementProperties(element);
-    if (properties.controlType === 'CheckBox') {
-      // チェックボックスの選択実装が必要
-      return true;
-    }
-    return false;
+    return await this.automationCore({ method: 'check', element });
   }
 
   async uncheck(element: ElementHandle): Promise<boolean> {
-    // チェックボックス解除の実装（簡易版）
-    const properties = await this.getElementProperties(element);
-    if (properties.controlType === 'CheckBox') {
-      // チェックボックスの解除実装が必要
-      return true;
-    }
-    return false;
+    return await this.automationCore({ method: 'uncheck', element });
   }
 
   async isChecked(element: ElementHandle): Promise<boolean> {
-    // チェック状態確認の実装（簡易版）
-    const properties = await this.getElementProperties(element);
-    if (properties.controlType === 'CheckBox') {
-      // チェック状態の確認実装が必要
-      return false;
-    }
-    return false;
+    return await this.automationCore({ method: 'isChecked', element });
   }
 
   async getValue(element: ElementHandle): Promise<string> {
-    return await this.getText(element);
+    return await this.automationCore({ method: 'getValue', element });
   }
 
   async hasFocus(element: ElementHandle): Promise<boolean> {
-    // フォーカス確認の実装（簡易版）
-    const properties = await this.getElementProperties(element);
-    // フォーカス状態の確認実装が必要
-    return false;
+    return await this.automationCore({ method: 'hasFocus', element });
   }
 
   async findElements(criteria: ElementCriteria): Promise<ElementHandle[]> {
-    // 複数要素検索の実装（簡易版）
-    const element = await this.findElement(criteria);
-    return element ? [element] : [];
+    return await this.automationCore({ method: 'findElements', criteria });
   }
 } 
