@@ -1,0 +1,43 @@
+{
+  "ui": {
+    "theme": "auto",
+    "language": "ja",
+    "fontSize": 14,
+    "showTooltips": true,
+    "autoSave": true
+  },
+  "test": {
+    "defaultTimeout": 30000,
+    "retryAttempts": 3,
+    "screenshotOnFailure": true,
+    "videoRecording": false,
+    "parallelExecution": false,
+    "maxParallelTests": 2
+  },
+  "logging": {
+    "level": "info",
+    "maxFileSize": 10485760,
+    "retentionDays": 30,
+    "enableConsole": true
+  },
+  "database": {
+    "path": "D:\\kensa\\data\\app.db",
+    "backupEnabled": true,
+    "backupInterval": 86400000,
+    "maxBackups": 10
+  },
+  "automation": {
+    "defaultWaitTimeout": 5000,
+    "elementTimeout": 10000,
+    "screenshotQuality": 80,
+    "enableMouseTracking": true,
+    "enableKeyboardTracking": true
+  },
+  "reporting": {
+    "autoGenerate": true,
+    "includeScreenshots": true,
+    "includeVideos": false,
+    "format": "html",
+    "outputPath": "D:\\kensa\\reports"
+  }
+}
