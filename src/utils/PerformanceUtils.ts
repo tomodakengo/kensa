@@ -138,7 +138,7 @@ export class MemoryCache<T> {
   }
 
   private cleanup(): void {
-    const now = Date.now();
+    // const now = Date.now();
     const keysToDelete: string[] = [];
 
     for (const [key, entry] of this.cache) {
@@ -183,7 +183,7 @@ export class PerformanceUtils {
     operationName?: string
   ): Promise<{ result: T; metrics: PerformanceMetrics }> {
     const startTime = performance.now();
-    const startMemory = this.getMemoryInfo();
+    // const startMemory = this.getMemoryInfo();
     
     try {
       const result = await operation();
@@ -395,10 +395,13 @@ export class PerformanceUtils {
     while (chunks.length > 1) {
       const mergedChunks: T[][] = [];
       for (let i = 0; i < chunks.length; i += 2) {
-        if (i + 1 < chunks.length) {
-          mergedChunks.push(this.mergeArrays(chunks[i], chunks[i + 1], compareFn));
-        } else {
-          mergedChunks.push(chunks[i]);
+        const chunk1 = chunks[i];
+        const chunk2 = chunks[i + 1];
+        
+        if (chunk1 && chunk2) {
+          mergedChunks.push(this.mergeArrays(chunk1, chunk2, compareFn));
+        } else if (chunk1) {
+          mergedChunks.push(chunk1);
         }
       }
       chunks.splice(0, chunks.length, ...mergedChunks);

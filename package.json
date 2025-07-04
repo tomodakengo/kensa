@@ -65,22 +65,61 @@
   },
   "build": {
     "appId": "com.yourcompany.windows-ui-automation-test-tool",
-    "productName": "Windows UI Automation Test Tool",
+    "productName": "Windows UI Automation Test Tool Kensa",
     "directories": {
-      "output": "dist"
+      "output": "dist/installer",
+      "buildResources": "assets"
     },
     "files": [
       "dist/**/*",
       "assets/**/*",
       "locators/**/*",
+      "index.html",
+      "styles.css",
+      "renderer.js",
       "!node_modules/**/*",
       "!src/**/*",
       "!**/*.test.ts",
-      "!**/*.spec.ts"
+      "!**/*.spec.ts",
+      "!create-icon.js",
+      "!TODO.md"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "assets/icon.ico"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        {
+          "target": "msi",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kensa UI Test Tool",
+      "license": "LICENSE.txt",
+      "language": "1041"
+    },
+    "msi": {
+      "oneClick": false,
+      "upgradeCode": "12345678-1234-1234-1234-123456789012"
+    },
+    "compression": "maximum",
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
     }
   }
 }
