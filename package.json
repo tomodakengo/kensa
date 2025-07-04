@@ -47,21 +47,21 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "^4.15.0",
+    "@tensorflow/tfjs-node": "^4.15.0",
     "fs-extra": "^11.1.1",
     "js-yaml": "^4.1.0",
     "lodash": "^4.17.21",
-    "sharp": "^0.33.0",
-    "sqlite3": "^5.1.6",
-    "uuid": "^9.0.1",
-    "xml2js": "^0.6.2",
-    "@tensorflow/tfjs": "^4.15.0",
-    "@tensorflow/tfjs-node": "^4.15.0",
+    "natural": "^6.10.4",
     "onnxruntime-web": "^1.16.3",
     "opencv.js": "^1.2.1",
+    "sharp": "^0.33.0",
+    "socket.io": "^4.7.4",
+    "sqlite3": "^5.1.6",
     "tesseract.js": "^5.0.3",
-    "natural": "^6.10.4",
+    "uuid": "^9.0.1",
     "ws": "^8.14.2",
-    "socket.io": "^4.7.4"
+    "xml2js": "^0.6.2"
   },
   "build": {
     "appId": "com.yourcompany.windows-ui-automation-test-tool",
