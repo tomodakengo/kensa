@@ -1,14 +1,57 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+import * as sqlite3 from 'sqlite3';
+import * as path from 'path';
+import type { TestReport } from '../types';
 
-class DatabaseManager {
-  constructor(dbPath) {
+interface DatabaseResult {
+  lastID: number;
+  changes: number;
+}
+
+interface TestData {
+  id?: number;
+  name: string;
+  description?: string;
+  test_data: any;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface TestResult {
+  id?: number;
+  test_id?: number;
+  scenario_id?: number;
+  status: string;
+  start_time?: string;
+  end_time?: string;
+  duration?: number;
+  error_message?: string;
+  report?: TestReport;
+  created_at?: string;
+}
+
+interface Setting {
+  key: string;
+  value: string;
+  updated_at?: string;
+}
+
+interface DatabaseStats {
+  totalTests: number;
+  totalScenarios: number;
+  totalResults: number;
+  recentResults: number;
+}
+
+export class DatabaseManager {
+  private dbPath: string;
+  private db: sqlite3.Database | null = null;
+
+  constructor(dbPath: string) {
     this.dbPath = dbPath;
-    this.db = null;
     this.initializeDatabase();
   }
 
-  initializeDatabase() {
+  private initializeDatabase(): void {
     this.db = new sqlite3.Database(this.dbPath, (err) => {
       if (err) {
         console.error('Error opening database:', err);
@@ -19,7 +62,7 @@ class DatabaseManager {
     });
   }
 
-  createTables() {
+  private createTables(): void {
     // Tests table (legacy - for backward compatibility)
     this.run(`
       CREATE TABLE IF NOT EXISTS tests (
@@ -61,8 +104,13 @@ class DatabaseManager {
   }
 
   // Promisified database methods
-  run(sql, params = []) {
+  run(sql: string, params: any[] = []): Promise<DatabaseResult> {
     return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
       this.db.run(sql, params, function(err) {
         if (err) {
           reject(err);
@@ -73,8 +121,13 @@ class DatabaseManager {
     });
   }
 
-  get(sql, params = []) {
+  get(sql: string, params: any[] = []): Promise<any> {
     return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
       this.db.get(sql, params, (err, row) => {
         if (err) {
           reject(err);
@@ -85,8 +138,13 @@ class DatabaseManager {
     });
   }
 
-  all(sql, params = []) {
+  all(sql: string, params: any[] = []): Promise<any[]> {
     return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
       this.db.all(sql, params, (err, rows) => {
         if (err) {
           reject(err);
@@ -98,7 +156,7 @@ class DatabaseManager {
   }
 
   // Test management methods
-  async saveTest(testData) {
+  async saveTest(testData: Omit<TestData, 'id'>): Promise<TestData> {
     const { name, description, test_data } = testData;
     const result = await this.run(
       'INSERT INTO tests (name, description, test_data) VALUES (?, ?, ?)',
@@ -107,7 +165,7 @@ class DatabaseManager {
     return { id: result.lastID, ...testData };
   }
 
-  async getAllTests() {
+  async getAllTests(): Promise<TestData[]> {
     const tests = await this.all('SELECT * FROM tests ORDER BY updated_at DESC');
     return tests.map(test => ({
       ...test,
@@ -115,7 +173,7 @@ class DatabaseManager {
     }));
   }
 
-  async getTest(id) {
+  async getTest(id: number): Promise<TestData | null> {
     const test = await this.get('SELECT * FROM tests WHERE id = ?', [id]);
     if (test) {
       test.test_data = JSON.parse(test.test_data);
@@ -123,7 +181,7 @@ class DatabaseManager {
     return test;
   }
 
-  async updateTest(id, updates) {
+  async updateTest(id: number, updates: Partial<TestData>): Promise<TestData | null> {
     const { name, description, test_data } = updates;
     await this.run(
       'UPDATE tests SET name = ?, description = ?, test_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -132,13 +190,13 @@ class DatabaseManager {
     return await this.getTest(id);
   }
 
-  async deleteTest(id) {
+  async deleteTest(id: number): Promise<{ success: boolean }> {
     await this.run('DELETE FROM tests WHERE id = ?', [id]);
     return { success: true };
   }
 
   // Test results methods
-  async saveTestResult(result) {
+  async saveTestResult(result: Omit<TestResult, 'id'>): Promise<TestResult> {
     const { test_id, scenario_id, status, start_time, end_time, duration, error_message, report } = result;
     const resultData = await this.run(
       `INSERT INTO test_results (test_id, scenario_id, status, start_time, end_time, duration, error_message, report) 
@@ -148,9 +206,9 @@ class DatabaseManager {
     return { id: resultData.lastID, ...result };
   }
 
-  async getTestResults(testId = null, limit = 50) {
+  async getTestResults(testId?: number, limit: number = 50): Promise<TestResult[]> {
     let query = 'SELECT * FROM test_results';
-    const params = [];
+    const params: any[] = [];
     
     if (testId) {
       query += ' WHERE test_id = ? OR scenario_id = ?';
@@ -163,17 +221,17 @@ class DatabaseManager {
     const results = await this.all(query, params);
     return results.map(result => ({
       ...result,
-      report: result.report ? JSON.parse(result.report) : null
+      report: result.report ? JSON.parse(result.report) : undefined
     }));
   }
 
   // Settings methods
-  async getSetting(key) {
+  async getSetting(key: string): Promise<string | null> {
     const setting = await this.get('SELECT value FROM settings WHERE key = ?', [key]);
     return setting ? setting.value : null;
   }
 
-  async setSetting(key, value) {
+  async setSetting(key: string, value: string): Promise<Setting> {
     await this.run(
       'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
       [key, value]
@@ -181,9 +239,9 @@ class DatabaseManager {
     return { key, value };
   }
 
-  async getAllSettings() {
+  async getAllSettings(): Promise<Record<string, string>> {
     const settings = await this.all('SELECT * FROM settings');
-    const result = {};
+    const result: Record<string, string> = {};
     settings.forEach(setting => {
       result[setting.key] = setting.value;
     });
@@ -191,40 +249,90 @@ class DatabaseManager {
   }
 
   // Utility methods
-  async vacuum() {
+  async vacuum(): Promise<void> {
     await this.run('VACUUM');
   }
 
-  async getStats() {
+  async getStats(): Promise<DatabaseStats> {
     const totalTests = await this.get('SELECT COUNT(*) as count FROM tests');
     const totalScenarios = await this.get('SELECT COUNT(*) as count FROM scenarios');
     const totalResults = await this.get('SELECT COUNT(*) as count FROM test_results');
-    const recentResults = await this.all(
-      `SELECT status, COUNT(*) as count 
-       FROM test_results 
-       WHERE created_at > datetime('now', '-7 days')
-       GROUP BY status`
+    const recentResults = await this.get(
+      'SELECT COUNT(*) as count FROM test_results WHERE created_at > datetime("now", "-7 days")'
     );
-    
+
     return {
-      totalTests: totalTests.count,
-      totalScenarios: totalScenarios.count,
-      totalResults: totalResults.count,
-      recentResults: recentResults
+      totalTests: totalTests?.count || 0,
+      totalScenarios: totalScenarios?.count || 0,
+      totalResults: totalResults?.count || 0,
+      recentResults: recentResults?.count || 0
     };
   }
 
-  close() {
+  async backup(backupPath: string): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
     return new Promise((resolve, reject) => {
-      this.db.close((err) => {
+      const backupDb = new sqlite3.Database(backupPath);
+      
+      this.db!.backup(backupDb, (err) => {
         if (err) {
           reject(err);
         } else {
+          backupDb.close();
           resolve();
         }
       });
     });
   }
-}
 
-module.exports = { DatabaseManager };
+  async close(): Promise<void> {
+    if (this.db) {
+      return new Promise((resolve, reject) => {
+        this.db!.close((err) => {
+          if (err) {
+            reject(err);
+          } else {
+            this.db = null;
+            resolve();
+          }
+        });
+      });
+    }
+  }
+
+  async isConnected(): Promise<boolean> {
+    try {
+      await this.get('SELECT 1');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async beginTransaction(): Promise<void> {
+    await this.run('BEGIN TRANSACTION');
+  }
+
+  async commitTransaction(): Promise<void> {
+    await this.run('COMMIT');
+  }
+
+  async rollbackTransaction(): Promise<void> {
+    await this.run('ROLLBACK');
+  }
+
+  async executeTransaction<T>(callback: () => Promise<T>): Promise<T> {
+    try {
+      await this.beginTransaction();
+      const result = await callback();
+      await this.commitTransaction();
+      return result;
+    } catch (error) {
+      await this.rollbackTransaction();
+      throw error;
+    }
+  }
+} 

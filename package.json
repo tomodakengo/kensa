@@ -47,7 +47,9 @@
     "iohook": "^0.9.3",
     "sqlite3": "^5.1.6",
     "fs-extra": "^11.1.1",
-    "path": "^0.12.7"
+    "js-yaml": "^4.1.0",
+    "xml2js": "^0.6.2",
+    "robotjs": "^0.6.0"
   },
   "build": {
     "appId": "com.yourcompany.windows-ui-automation-test-tool",
@@ -69,4 +71,4 @@
       "icon": "assets/icon.ico"
     }
   }
-} 
+}

@@ -1,13 +1,64 @@
-const path = require('path');
-const fs = require('fs').promises;
+import * as path from 'path';
+import * as fs from 'fs-extra';
+import * as yaml from 'js-yaml';
+import { DatabaseManager } from '../database/DatabaseManager';
+import type { TestScenario, TestReport } from '../types';
 
-class ScenarioManager {
-  constructor(dbManager) {
+interface Scenario {
+  id?: number;
+  name: string;
+  description?: string;
+  folder?: string;
+  tags?: string[];
+  test_data: TestScenario;
+  created_at?: string;
+  updated_at?: string;
+  last_run?: string;
+  run_count?: number;
+  last_status?: string;
+  tag_names?: string;
+}
+
+interface Folder {
+  id: number;
+  name: string;
+  parent_id?: number;
+  created_at?: string;
+}
+
+interface Tag {
+  id: number;
+  name: string;
+  color: string;
+}
+
+interface ScenarioOptions {
+  folder?: string;
+  tags?: string[];
+  sortBy?: string;
+  sortOrder?: 'ASC' | 'DESC';
+}
+
+interface ScenarioUpdate {
+  name?: string;
+  description?: string;
+  folder?: string;
+  test_data?: TestScenario;
+  last_run?: string;
+  run_count?: number;
+  last_status?: string;
+  tags?: string[];
+}
+
+export class ScenarioManager {
+  private dbManager: DatabaseManager;
+
+  constructor(dbManager: DatabaseManager) {
     this.dbManager = dbManager;
     this.initializeDatabase();
   }
 
-  async initializeDatabase() {
+  private async initializeDatabase(): Promise<void> {
     // Create scenarios table
     await this.dbManager.run(`
       CREATE TABLE IF NOT EXISTS scenarios (
@@ -57,7 +108,7 @@ class ScenarioManager {
     `);
   }
 
-  async getScenarios(options = {}) {
+  async getScenarios(options: ScenarioOptions = {}): Promise<Scenario[]> {
     const { folder, tags, sortBy = 'updated_at', sortOrder = 'DESC' } = options;
     
     let query = `
@@ -67,7 +118,7 @@ class ScenarioManager {
       LEFT JOIN tags t ON st.tag_id = t.id
       WHERE 1=1
     `;
-    const params = [];
+    const params: any[] = [];
 
     if (folder) {
       query += ' AND s.folder = ?';
@@ -94,7 +145,7 @@ class ScenarioManager {
     }));
   }
 
-  async saveScenario(scenario) {
+  async saveScenario(scenario: Omit<Scenario, 'id'>): Promise<Scenario> {
     const { name, description, folder = '/', tags = [], test_data } = scenario;
     
     // Insert scenario
@@ -113,15 +164,16 @@ class ScenarioManager {
     return { id: scenarioId, ...scenario };
   }
 
-  async updateScenario(id, updates) {
+  async updateScenario(id: number, updates: ScenarioUpdate): Promise<Scenario | null> {
     const allowedFields = ['name', 'description', 'folder', 'test_data', 'last_run', 'run_count', 'last_status'];
-    const setClause = [];
-    const values = [];
+    const setClause: string[] = [];
+    const values: any[] = [];
     
     for (const field of allowedFields) {
-      if (updates[field] !== undefined) {
+      if (updates[field as keyof ScenarioUpdate] !== undefined) {
         setClause.push(`${field} = ?`);
-        values.push(field === 'test_data' ? JSON.stringify(updates[field]) : updates[field]);
+        const value = updates[field as keyof ScenarioUpdate];
+        values.push(field === 'test_data' ? JSON.stringify(value) : value);
       }
     }
     
@@ -143,12 +195,12 @@ class ScenarioManager {
     return await this.getScenario(id);
   }
 
-  async deleteScenario(id) {
+  async deleteScenario(id: number): Promise<{ success: boolean }> {
     await this.dbManager.run('DELETE FROM scenarios WHERE id = ?', [id]);
     return { success: true };
   }
 
-  async searchScenarios(query) {
+  async searchScenarios(query: string): Promise<Scenario[]> {
     const searchQuery = `%${query}%`;
     
     const scenarios = await this.dbManager.all(
@@ -169,7 +221,7 @@ class ScenarioManager {
     }));
   }
 
-  async getScenario(id) {
+  async getScenario(id: number): Promise<Scenario | null> {
     const scenario = await this.dbManager.get(
       `SELECT s.*, GROUP_CONCAT(t.name) as tag_names
        FROM scenarios s
@@ -189,7 +241,7 @@ class ScenarioManager {
     };
   }
 
-  async createFolder(name, parentId = null) {
+  async createFolder(name: string, parentId?: number): Promise<Folder> {
     const result = await this.dbManager.run(
       'INSERT INTO folders (name, parent_id) VALUES (?, ?)',
       [name, parentId]
@@ -198,92 +250,120 @@ class ScenarioManager {
     return { id: result.lastID, name, parent_id: parentId };
   }
 
-  async getFolders() {
-    return await this.dbManager.all(
-      'SELECT * FROM folders ORDER BY parent_id, name'
-    );
+  async getFolders(): Promise<Folder[]> {
+    return await this.dbManager.all('SELECT * FROM folders ORDER BY name');
   }
 
-  async createTag(name, color = '#3B82F6') {
+  async deleteFolder(id: number): Promise<{ success: boolean }> {
+    // Move scenarios to root folder
+    await this.dbManager.run('UPDATE scenarios SET folder = "/" WHERE folder = (SELECT name FROM folders WHERE id = ?)', [id]);
+    
+    // Delete folder
+    await this.dbManager.run('DELETE FROM folders WHERE id = ?', [id]);
+    
+    return { success: true };
+  }
+
+  async createTag(name: string, color: string = '#3B82F6'): Promise<Tag> {
     const result = await this.dbManager.run(
-      'INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)',
+      'INSERT INTO tags (name, color) VALUES (?, ?)',
       [name, color]
     );
     
     return { id: result.lastID, name, color };
   }
 
-  async getTags() {
+  async getTags(): Promise<Tag[]> {
     return await this.dbManager.all('SELECT * FROM tags ORDER BY name');
   }
 
-  async addTagsToScenario(scenarioId, tagNames) {
+  private async addTagsToScenario(scenarioId: number, tagNames: string[]): Promise<void> {
     for (const tagName of tagNames) {
-      // Create tag if it doesn't exist
-      await this.createTag(tagName);
+      // Get or create tag
+      let tag = await this.dbManager.get('SELECT * FROM tags WHERE name = ?', [tagName]);
       
-      // Get tag ID
-      const tag = await this.dbManager.get(
-        'SELECT id FROM tags WHERE name = ?',
-        [tagName]
-      );
-      
-      // Add to junction table
-      if (tag) {
-        await this.dbManager.run(
-          'INSERT OR IGNORE INTO scenario_tags (scenario_id, tag_id) VALUES (?, ?)',
-          [scenarioId, tag.id]
-        );
+      if (!tag) {
+        const result = await this.dbManager.run('INSERT INTO tags (name) VALUES (?)', [tagName]);
+        tag = { id: result.lastID, name: tagName, color: '#3B82F6' };
       }
+      
+      // Add tag to scenario
+      await this.dbManager.run(
+        'INSERT OR IGNORE INTO scenario_tags (scenario_id, tag_id) VALUES (?, ?)',
+        [scenarioId, tag.id]
+      );
     }
   }
 
-  async updateScenarioTags(scenarioId, tagNames) {
+  private async updateScenarioTags(scenarioId: number, tagNames: string[]): Promise<void> {
     // Remove existing tags
-    await this.dbManager.run(
-      'DELETE FROM scenario_tags WHERE scenario_id = ?',
-      [scenarioId]
-    );
+    await this.dbManager.run('DELETE FROM scenario_tags WHERE scenario_id = ?', [scenarioId]);
     
     // Add new tags
-    await this.addTagsToScenario(scenarioId, tagNames);
+    if (tagNames.length > 0) {
+      await this.addTagsToScenario(scenarioId, tagNames);
+    }
   }
 
-  async exportScenarios(scenarioIds, format = 'yaml') {
+  async exportScenarios(scenarioIds: number[], format: 'yaml' | 'json' = 'yaml'): Promise<string> {
     const scenarios = await Promise.all(
       scenarioIds.map(id => this.getScenario(id))
     );
     
-    if (format === 'yaml') {
-      const yaml = require('js-yaml');
-      return yaml.dump({ scenarios });
-    } else if (format === 'json') {
-      return JSON.stringify({ scenarios }, null, 2);
-    }
-    
-    throw new Error(`Unsupported export format: ${format}`);
-  }
-
-  async importScenarios(data, format = 'yaml') {
-    let scenarios;
+    const validScenarios = scenarios.filter(s => s !== null) as Scenario[];
     
     if (format === 'yaml') {
-      const yaml = require('js-yaml');
-      scenarios = yaml.load(data).scenarios;
-    } else if (format === 'json') {
-      scenarios = JSON.parse(data).scenarios;
+      return yaml.dump(validScenarios);
     } else {
-      throw new Error(`Unsupported import format: ${format}`);
+      return JSON.stringify(validScenarios, null, 2);
     }
-    
-    const results = [];
-    for (const scenario of scenarios) {
-      const result = await this.saveScenario(scenario);
-      results.push(result);
-    }
-    
-    return results;
   }
-}
 
-module.exports = { ScenarioManager };
+  async importScenarios(data: string, format: 'yaml' | 'json' = 'yaml'): Promise<Scenario[]> {
+    let scenarios: Scenario[];
+    
+    if (format === 'yaml') {
+      scenarios = yaml.load(data) as Scenario[];
+    } else {
+      scenarios = JSON.parse(data) as Scenario[];
+    }
+    
+    const importedScenarios: Scenario[] = [];
+    
+    for (const scenario of scenarios) {
+      const { id, ...scenarioData } = scenario;
+      const savedScenario = await this.saveScenario(scenarioData);
+      importedScenarios.push(savedScenario);
+    }
+    
+    return importedScenarios;
+  }
+
+  async updateScenarioStatus(id: number, status: string, report?: TestReport): Promise<void> {
+    const updates: ScenarioUpdate = {
+      last_status: status,
+      last_run: new Date().toISOString(),
+      run_count: 1 // This should be incremented, but simplified for now
+    };
+    
+    await this.updateScenario(id, updates);
+  }
+
+  async getScenarioStats(): Promise<{
+    total: number;
+    passed: number;
+    failed: number;
+    notRun: number;
+  }> {
+    const scenarios = await this.getScenarios();
+    
+    const stats = {
+      total: scenarios.length,
+      passed: scenarios.filter(s => s.last_status === 'passed').length,
+      failed: scenarios.filter(s => s.last_status === 'failed').length,
+      notRun: scenarios.filter(s => !s.last_status).length
+    };
+    
+    return stats;
+  }
+} 

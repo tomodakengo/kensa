@@ -9,14 +9,14 @@ import { ScenarioManager } from './managers/ScenarioManager';
 import { LocatorManager } from './managers/LocatorManager';
 import { TestReporter } from './automation/TestReporter';
 import { AssertionEngine } from './automation/AssertionEngine';
-import type { 
-  TestScenario, 
-  TestResult, 
-  Locator, 
-  AppSettings, 
+import type {
+  TestScenario,
+  TestResult,
+  Locator,
+  AppSettings,
   TestReport,
   RecordingEvent,
-  Snapshot 
+  Snapshot
 } from './types';
 
 class MainProcess {
@@ -42,17 +42,17 @@ class MainProcess {
 
     // データベースの初期化
     this.databaseManager = new DatabaseManager(this.settings.databasePath);
-    
+
     // マネージャーの初期化
     this.scenarioManager = new ScenarioManager(this.databaseManager);
-    this.locatorManager = new LocatorManager(this.databaseManager);
-    
+    this.locatorManager = new LocatorManager('./locators');
+
     // 自動化コンポーネントの初期化
     this.uiClient = new UIAutomationClient();
+    this.assertionEngine = new AssertionEngine(this.uiClient);
     this.testRecorder = new TestRecorder(this.uiClient);
     this.testRunner = new TestRunner(this.uiClient, this.assertionEngine);
-    this.assertionEngine = new AssertionEngine();
-    this.testReporter = new TestReporter(this.settings.reportPath);
+    this.testReporter = new TestReporter({ outputDir: this.settings.reportPath });
   }
 
   private setupEventHandlers(): void {
