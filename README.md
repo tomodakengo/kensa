@@ -1,4 +1,4 @@
-# Windows UI Automation Test Tool
+# Windows UI Automation Test Tool "Kensa"
 
 A no-code test automation tool for Windows desktop applications, inspired by Playwright's API design. This tool provides recording, playback, and assertion capabilities for Windows applications using UI Automation API.
 
