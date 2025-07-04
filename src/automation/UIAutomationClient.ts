@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { ElementHighlighter, HighlightOptions } from './ElementHighlighter';
 
 const execAsync = promisify(exec);
 
@@ -63,9 +64,17 @@ export interface TypeOptions {
 export class UIAutomationClient {
   private isRecording = false;
   private recordedActions: any[] = [];
+  private highlighter: ElementHighlighter;
+  private highlightOptions: HighlightOptions = {
+    color: '#ff0000',
+    thickness: 3,
+    duration: 2000,
+    style: 'solid'
+  };
 
   constructor() {
     // PowerShellベースのUI Automationクライアント
+    this.highlighter = new ElementHighlighter();
   }
 
   /**
@@ -242,7 +251,14 @@ export class UIAutomationClient {
       const { stdout } = await execAsync(`powershell -Command "${script}"`);
 
       if (stdout.trim()) {
-        return JSON.parse(stdout);
+        const element = JSON.parse(stdout);
+
+        // 記録中の場合、要素をハイライト
+        if (this.isRecording) {
+          await this.highlighter.highlightElementAtPosition(point.x, point.y, this.highlightOptions);
+        }
+
+        return element;
       }
 
       return null;
@@ -895,5 +911,51 @@ export class UIAutomationClient {
       console.error('Type at position failed:', error);
       return false;
     }
+  }
+
+  /**
+   * ハイライト設定を更新する
+   */
+  updateHighlightOptions(options: HighlightOptions): void {
+    this.highlightOptions = { ...this.highlightOptions, ...options };
+  }
+
+  /**
+   * 現在のハイライト設定を取得する
+   */
+  getHighlightOptions(): HighlightOptions {
+    return { ...this.highlightOptions };
+  }
+
+  /**
+   * 要素をハイライトする
+   */
+  async highlightElement(element: any, options?: HighlightOptions): Promise<void> {
+    const highlightOpts = options || this.highlightOptions;
+    await this.highlighter.highlightElement(element, highlightOpts);
+  }
+
+  /**
+   * マウス位置の要素をハイライトする
+   */
+  async highlightElementAtPosition(x: number, y: number, options?: HighlightOptions): Promise<void> {
+    const highlightOpts = options || this.highlightOptions;
+    await this.highlighter.highlightElementAtPosition(x, y, highlightOpts);
+  }
+
+  /**
+   * 現在のハイライトをクリアする
+   */
+  async clearHighlight(): Promise<void> {
+    await this.highlighter.clearHighlight();
+  }
+
+  /**
+   * 録画停止時にハイライトをクリアする
+   */
+  async stopRecordingWithCleanup(): Promise<any[]> {
+    this.isRecording = false;
+    await this.clearHighlight();
+    return this.recordedActions;
   }
 } 

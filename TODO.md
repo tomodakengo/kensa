@@ -56,6 +56,13 @@ Windowsデスクトップアプリケーションのノーコードテスト自�
 - [x] findElements() - 複数要素検索
 ```
 
+#### 4. 赤枠表示機能
+- [x] `src/automation/ElementHighlighter.ts` - 要素ハイライト機能
+- [x] TestRecorder統合 - 記録時の自動ハイライト
+- [x] UIAutomationClient統合 - 要素検査時のハイライト
+- [x] ハイライト設定管理 - 色、太さ、スタイル、持続時間
+- [x] 自動クリア機能 - 記録停止時のハイライトクリア
+
 #### 4. アセット・リソース
 - [ ] `assets/icon.ico` - アプリケーションアイコン
 - [x] `locators/` - ロケーターファイルディレクトリ

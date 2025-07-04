@@ -1,17 +1,26 @@
 import { UIAutomationClient } from './UIAutomationClient';
+import { ElementHighlighter, HighlightOptions } from './ElementHighlighter';
 import type { RecordingEvent, RecordedAction, UIAutomationElement, MousePosition } from '../types';
 
 export class TestRecorder {
   private isRecordingFlag = false;
   private recordedEvents: RecordingEvent[] = [];
+  private highlighter: ElementHighlighter;
+  private highlightOptions: HighlightOptions = {
+    color: '#ff0000',
+    thickness: 3,
+    duration: 2000,
+    style: 'solid'
+  };
 
   constructor(_automationClient: UIAutomationClient) {
     // Store reference for future use
+    this.highlighter = new ElementHighlighter();
   }
 
   /**
-   * 録画を開始する
-   */
+ * 録画を開始する
+ */
   async startRecording(): Promise<void> {
     if (this.isRecordingFlag) {
       throw new Error('Recording is already in progress');
@@ -19,20 +28,24 @@ export class TestRecorder {
 
     this.isRecordingFlag = true;
     this.recordedEvents = [];
-    
-    console.log('Test recording started');
+
+    // ハイライト機能を有効化
+    console.log('Test recording started with element highlighting');
   }
 
   /**
-   * 録画を停止する
-   */
+ * 録画を停止する
+ */
   async stopRecording(): Promise<RecordingEvent[]> {
     if (!this.isRecordingFlag) {
       throw new Error('No recording in progress');
     }
 
     this.isRecordingFlag = false;
-    
+
+    // ハイライトをクリア
+    await this.highlighter.clearHighlight();
+
     console.log(`Test recording stopped. Recorded ${this.recordedEvents.length} events`);
     return [...this.recordedEvents];
   }
@@ -55,10 +68,17 @@ export class TestRecorder {
       coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     };
 
+    const uiElement = this.convertToUIAutomationElement(element);
+
+    // 記録中の場合、要素をハイライト
+    if (this.isRecordingFlag && uiElement) {
+      await this.highlighter.highlightElement(uiElement, this.highlightOptions);
+    }
+
     this.recordEvent({
       type: 'click',
       timestamp: action.timestamp,
-      element: this.convertToUIAutomationElement(element),
+      element: uiElement,
       coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     });
   }
@@ -76,10 +96,17 @@ export class TestRecorder {
       value: text
     };
 
+    const uiElement = this.convertToUIAutomationElement(element);
+
+    // 記録中の場合、要素をハイライト
+    if (this.isRecordingFlag && uiElement) {
+      await this.highlighter.highlightElement(uiElement, this.highlightOptions);
+    }
+
     this.recordEvent({
       type: 'type',
       timestamp: action.timestamp,
-      element: this.convertToUIAutomationElement(element),
+      element: uiElement,
       value: text
     });
   }
@@ -95,10 +122,17 @@ export class TestRecorder {
       coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     };
 
+    const uiElement = this.convertToUIAutomationElement(element);
+
+    // 記録中の場合、要素をハイライト
+    if (this.isRecordingFlag && uiElement) {
+      await this.highlighter.highlightElement(uiElement, this.highlightOptions);
+    }
+
     this.recordEvent({
       type: 'hover',
       timestamp: action.timestamp,
-      element: this.convertToUIAutomationElement(element),
+      element: uiElement,
       coordinates: coordinates ? { x: coordinates.x, y: coordinates.y } : undefined
     });
   }
@@ -279,5 +313,35 @@ export class TestRecorder {
     };
 
     this.recordedEvents.push(eventToRecord);
+  }
+
+  /**
+   * ハイライト設定を更新する
+   */
+  updateHighlightOptions(options: HighlightOptions): void {
+    this.highlightOptions = { ...this.highlightOptions, ...options };
+  }
+
+  /**
+   * 現在のハイライト設定を取得する
+   */
+  getHighlightOptions(): HighlightOptions {
+    return { ...this.highlightOptions };
+  }
+
+  /**
+   * マウス位置の要素をハイライトする（記録中のみ）
+   */
+  async highlightElementAtPosition(x: number, y: number): Promise<void> {
+    if (this.isRecordingFlag) {
+      await this.highlighter.highlightElementAtPosition(x, y, this.highlightOptions);
+    }
+  }
+
+  /**
+   * 現在のハイライトをクリアする
+   */
+  async clearCurrentHighlight(): Promise<void> {
+    await this.highlighter.clearHighlight();
   }
 } 
