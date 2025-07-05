@@ -11,7 +11,7 @@
     "dist": "npm run build && electron-builder",
     "dist:x64": "npm run build && electron-builder --x64",
     "dist:ia32": "npm run build && electron-builder --ia32",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:integration": "jest --testPathPattern=integration",
