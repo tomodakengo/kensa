@@ -9,12 +9,27 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "dist": "npm run build && electron-builder",
-    "test": "jest",
+    "dist:x64": "npm run build && electron-builder --x64",
+    "dist:ia32": "npm run build && electron-builder --ia32",
+    "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:a11y": "jest --testPathPattern=accessibility",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,js,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,js,json}\"",
     "type-check": "tsc --noEmit",
-    "rebuild": "electron-rebuild"
+    "rebuild": "electron-rebuild",
+    "benchmark": "node scripts/benchmark.js",
+    "analyze:bundle": "webpack-bundle-analyzer dist/main.js",
+    "docs:generate": "typedoc --out docs src/",
+    "docs:coverage": "typedoc --out docs src/ --coverage",
+    "security:audit": "npm audit",
+    "security:fix": "npm audit fix",
+    "clean": "rimraf dist coverage docs",
+    "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [
     "windows",
@@ -44,43 +59,89 @@
     "eslint-plugin-promise": "^6.1.1",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.1",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "prettier": "^3.1.0",
+    "typedoc": "^0.25.4",
+    "webpack-bundle-analyzer": "^4.10.1",
+    "rimraf": "^5.0.5",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "concurrently": "^8.2.2"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "^4.15.0",
+    "@tensorflow/tfjs-node": "^4.15.0",
     "fs-extra": "^11.1.1",
     "js-yaml": "^4.1.0",
     "lodash": "^4.17.21",
-    "sharp": "^0.33.0",
-    "sqlite3": "^5.1.6",
-    "uuid": "^9.0.1",
-    "xml2js": "^0.6.2",
-    "@tensorflow/tfjs": "^4.15.0",
-    "@tensorflow/tfjs-node": "^4.15.0",
+    "natural": "^6.10.4",
     "onnxruntime-web": "^1.16.3",
     "opencv.js": "^1.2.1",
+    "sharp": "^0.33.0",
+    "socket.io": "^4.7.4",
+    "sqlite3": "^5.1.6",
     "tesseract.js": "^5.0.3",
-    "natural": "^6.10.4",
+    "uuid": "^9.0.1",
     "ws": "^8.14.2",
-    "socket.io": "^4.7.4"
+    "xml2js": "^0.6.2"
   },
   "build": {
     "appId": "com.yourcompany.windows-ui-automation-test-tool",
-    "productName": "Windows UI Automation Test Tool",
+    "productName": "Windows UI Automation Test Tool Kensa",
     "directories": {
-      "output": "dist"
+      "output": "dist/installer",
+      "buildResources": "assets"
     },
     "files": [
       "dist/**/*",
       "assets/**/*",
       "locators/**/*",
+      "index.html",
+      "styles.css",
+      "renderer.js",
       "!node_modules/**/*",
       "!src/**/*",
       "!**/*.test.ts",
-      "!**/*.spec.ts"
+      "!**/*.spec.ts",
+      "!create-icon.js",
+      "!TODO.md"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "assets/icon.ico"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        {
+          "target": "msi",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kensa UI Test Tool",
+      "license": "LICENSE.txt",
+      "language": "1041"
+    },
+    "msi": {
+      "oneClick": false,
+      "upgradeCode": "12345678-1234-1234-1234-123456789012"
+    },
+    "compression": "maximum",
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
     }
   }
 }
