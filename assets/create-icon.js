@@ -1,0 +1,21 @@
+// Simple script to create a basic app icon
+const fs = require('fs');
+const path = require('path');
+
+// Create a simple SVG icon
+const svgContent = `
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <rect width="256" height="256" fill="#2196F3"/>
+  <rect x="32" y="32" width="192" height="192" fill="#ffffff" rx="16"/>
+  <rect x="48" y="48" width="160" height="160" fill="#2196F3" rx="8"/>
+  <text x="128" y="140" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="48" font-weight="bold">UI</text>
+  <text x="128" y="180" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="20">Test</text>
+</svg>
+`;
+
+// Write SVG file
+fs.writeFileSync(path.join(__dirname, 'icon.svg'), svgContent);
+
+console.log('Created icon.svg in assets directory');
+console.log('To convert to ICO format, use a tool like imagemagick or online converter');
+console.log('Command: convert icon.svg -resize 256x256 icon.ico');
